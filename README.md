@@ -79,6 +79,27 @@ fused into one table.
 `toModelSchema()` is an **allowlist** built from three fields, never an omit-list — so
 `invoke`, `effects`, `cost`, `writes` and `egress` cannot leak into a model request.
 
+## Stores — persistence is a host adapter
+
+```js
+const log   = createLogStore(adapter)    // append-only events
+const blobs = createBlobStore(adapter)   // content-addressed, deduped
+```
+
+The *semantics* live here; each host supplies the storage underneath — IndexedDB in the
+extension, SQLite on a gateway or daemon, a capped ring buffer colocated. An in-memory
+adapter ships for tests, colocated hosts and the replay harness.
+
+`append()` is **idempotent on event id**, so replicating to a warm tier can retry
+safely — the log-level counterpart of the idempotency keys capabilities carry. A seq that
+moves *backwards* for a host is rejected as a corrupt writer; gaps are allowed, because
+eviction must not corrupt the log. `cursor()` and `since()` are the replication pair.
+
+The two stores are separate so **crypto-shredding** works: `blobs.shred(hash)` drops the
+payload and leaves a tombstone, so "delete this meeting" can be honoured against an
+append-only log while every event that referenced it, and the causality chain, stay
+intact. Replay then reports `verified-but-unavailable`.
+
 ## Invariants
 
 ```js
