@@ -10,9 +10,12 @@
 # Version-guarded: an unchanged version just skips.
 name: Publish to npm
 
+# TRIGGER IS MANUAL UNTIL THE FIRST CONSUMER LANDS.
+# The event schema is append-only forever, so publishing before a real consumer has
+# exercised it burns a version number on a contract we may still want to change. Flip
+# this back to `push: branches: [main]` once (a) the npm Trusted Publisher entry below
+# exists and (b) the extension has actually written events through this package.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
