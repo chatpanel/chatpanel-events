@@ -147,6 +147,24 @@ checkInvariants(events) // → [] when the log is sound
 I3 is additionally structural: a non-pure `capability.invoked` without a key fails
 `validateEvent`, so it cannot enter the log at all.
 
+## The replay harness
+
+```js
+const report = replay(parseJsonl(log), { blobs })
+if (!report.ok) { console.error(formatReport(report)); process.exit(1) }
+```
+
+Run it in CI and the determinism claim stops being a comment. It reproduces order from
+`(host, seq)` and `causes`, checks I1–I6, and resolves every resident `Ref` by hash.
+
+Two outcomes are worth distinguishing, because they look similar and mean opposite
+things:
+
+- a blob that is **gone** (crypto-shredded or evicted) reports *verified-but-unavailable*
+  and **passes** — shredding is a feature, and the log still proves what was sent;
+- a source that **changed** reports *drifted* and **fails**, because the alternative is
+  replay quietly substituting today's note for the one actually sent.
+
 ## Install
 
 ```sh

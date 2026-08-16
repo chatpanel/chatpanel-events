@@ -1,0 +1,23 @@
+# The contracts are only worth what the tests assert about them, so this runs on every
+# push and PR — including the replay harness, which is what keeps the determinism claim
+# from decaying into a comment.
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [18, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --test tests/*.test.js

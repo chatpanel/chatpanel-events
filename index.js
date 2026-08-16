@@ -25,3 +25,4 @@ export {
 export { checkInvariants, INVARIANTS } from './invariants.js';
 export { createMemoryAdapter, createLogStore, createBlobStore } from './store.js';
 export { createRegistry, REGISTRY_STATES } from './registry.js';
+export { replay, formatReport, parseJsonl, toJsonl } from './harness.js';

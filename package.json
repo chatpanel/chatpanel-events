@@ -13,7 +13,8 @@
     "./capability.js": "./capability.js",
     "./invariants.js": "./invariants.js",
     "./store.js": "./store.js",
-    "./registry.js": "./registry.js"
+    "./registry.js": "./registry.js",
+    "./harness.js": "./harness.js"
   },
   "files": [
     "index.js",
@@ -23,6 +24,7 @@
     "upcast.js",
     "store.js",
     "registry.js",
+    "harness.js",
     "capability.js",
     "invariants.js",
     "LICENSE",
