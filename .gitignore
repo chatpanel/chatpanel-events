@@ -1,0 +1,7 @@
+node_modules/
+*.log
+.DS_Store
+
+# Agent instructions live ONLY in the private backend repo (docs/agent-guides/).
+CLAUDE.md
+AGENTS.md

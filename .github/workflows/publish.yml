@@ -1,0 +1,45 @@
+# Publish @chatpanel/events to npm via OIDC Trusted Publishing — NO token.
+# Identical mechanism to @chatpanel/bridge (which publishes this way successfully).
+#
+# One-time setup on npmjs.com (mirror the working @chatpanel/bridge entry):
+#   package @chatpanel/events → Settings → Trusted Publisher → GitHub Actions
+#     Organization or user : chatpanel
+#     Repository           : chatpanel-events
+#     Workflow filename    : publish.yml      (just the filename, not the path)
+#     Environment          : (leave blank)
+# Version-guarded: an unchanged version just skips.
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC trusted publishing + provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Ensure npm supports trusted publishing (>= 11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Publish if the version is new
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VER" version >/dev/null 2>&1; then
+            echo "$NAME@$VER already on npm — bump the version to publish."
+          else
+            npm publish --provenance --access public
+            echo "Published $NAME@$VER"
+          fi

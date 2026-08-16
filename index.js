@@ -1,0 +1,25 @@
+// @chatpanel/events — the ChatPanel event-log and capability contracts.
+//
+// Two contracts everything else inherits from:
+//   • the EVENT SCHEMA — append-only, versioned forever, metadata only, ordered
+//     without clocks;
+//   • the CAPABILITY SIGNATURE — one call shape a rule, a schedule, the user or a
+//     model all invoke identically.
+//
+// Pure and dependency-free so the identical code runs in the extension (browser ESM,
+// MV3/CSP-safe), the gateway and the bridge — the @chatpanel/pii delivery pattern.
+
+export {
+  CURRENT_VERSION, EVENT_TYPES, ALL_TYPES,
+  ACTOR_KINDS, SCOPE_KINDS, CLASSES, EFFECTS, EGRESS,
+  EventError, validateEvent, isValidEvent, createAppender,
+} from './event.js';
+
+export { REF_KINDS, RESOLUTION, makeRef, isRef, resolveRef } from './ref.js';
+export { linearize, compareEvents, causesAreWellFormed } from './order.js';
+export { UPCASTERS, upcast, upcastAll } from './upcast.js';
+export {
+  DATA_SCOPES, validateCapability, validateInvocation, canSatisfy,
+  toModelSchema, toModelSchemas,
+} from './capability.js';
+export { checkInvariants, INVARIANTS } from './invariants.js';
