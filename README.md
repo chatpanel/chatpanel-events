@@ -100,6 +100,35 @@ payload and leaves a tombstone, so "delete this meeting" can be honoured against
 append-only log while every event that referenced it, and the causality chain, stay
 intact. Replay then reports `verified-but-unavailable`.
 
+## The registry — effects and reactive availability
+
+```js
+const reg = createRegistry({ onEvent })
+reg.register({ name: 'page-tools', requires: ['tab'], apply(ctx) {
+  ctx.effect(() => { const off = arm(); return () => off() })   // unwinds automatically
+}})
+const withdraw = reg.provide('tab', tab)   // page-tools activates
+withdraw()                                  // page-tools deactivates and unwinds
+```
+
+This is the runtime half of the capability contract: `requires`/`provides` in a
+declaration only mean something because something binds them here. Two rules carry it,
+and each prevents a specific bug class:
+
+1. **LIFO disposal** — inverses run in reverse order of registration, so each meets the
+   state its own application produced.
+2. **Dependents deactivate *before* a provider's binding is removed** — a component
+   being torn down because its provider is leaving is running teardown that frequently
+   *needs* the very capability being withdrawn (closing a pool means handing connections
+   back). Remove the binding first and that teardown reaches for something already gone.
+
+A failing component is recorded on itself, unwinds whatever it registered, and leaves
+its siblings running. A dependency cycle simply leaves its components permanently
+inactive — and unlike a schedule-dependent deadlock it is visible from the declarations
+alone, so `pending()` can report it at load time.
+
+No dependency *resolution*: this binds availability, it does not solve versions.
+
 ## Invariants
 
 ```js
