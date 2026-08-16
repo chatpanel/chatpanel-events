@@ -171,7 +171,12 @@ things:
 npm install @chatpanel/events
 ```
 
-Node ≥ 18. No dependencies. `node --test tests/*.test.js`.
+Node ≥ 20. No dependencies. `node --test tests/*.test.js`.
+
+The default `digest` and id factory use the **global** WebCrypto, which every browser has
+and which Node exposes without a flag from 19 onward — hence ≥ 20 rather than ≥ 18 (EOL
+since April 2025). Both are injectable, so a host with its own crypto never touches the
+default.
 
 ## License
 

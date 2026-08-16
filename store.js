@@ -161,6 +161,9 @@ export function createBlobStore(adapter = createMemoryAdapter(), { digest = sha2
   return store;
 }
 
+// Global WebCrypto: present in every browser and in Node from 19 onward. Callers on an
+// older or unusual runtime inject their own `digest` rather than the package reaching
+// for `node:crypto`, which would put a Node import in a browser-first module.
 async function sha256Hex(content) {
   const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content;
   const buf = await globalThis.crypto.subtle.digest('SHA-256', bytes);
