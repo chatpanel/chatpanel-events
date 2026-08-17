@@ -14,10 +14,12 @@
     "./invariants.js": "./invariants.js",
     "./store.js": "./store.js",
     "./registry.js": "./registry.js",
-    "./harness.js": "./harness.js"
+    "./harness.js": "./harness.js",
+    "./sources.js": "./sources.js"
   },
   "files": [
     "index.js",
+    "sources.js",
     "event.js",
     "ref.js",
     "order.js",
