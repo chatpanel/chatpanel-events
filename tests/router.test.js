@@ -484,8 +484,8 @@ test('the same model at two providers is settled by order, not by a cost guess',
   // The complaint that surfaced this: order was a tie-break on exact float equality, which
   // two candidates essentially never hit, so the setting did nothing. When the model is
   // IDENTICAL only the path differs — and the path is exactly what order expresses.
-  const fast = defineModel({ id: 'via-aggregator', model: 'deepseek/deepseek-v4-flash', reach: 'any', costPer1k: 0.1, latencyMs: 300, providerRank: 30 });
-  const preferred = defineModel({ id: 'via-first-party', model: 'deepseek-ai/DeepSeek-V4-Flash', reach: 'any', costPer1k: 0.5, latencyMs: 900, providerRank: 10 });
+  const fast = defineModel({ id: 'via-aggregator', model: 'deepseek/deepseek-v4-flash', reach: 'any', costPer1k: 0.1, latencyMs: 300, providerRank: 30, orderPinned: true });
+  const preferred = defineModel({ id: 'via-first-party', model: 'deepseek-ai/DeepSeek-V4-Flash', reach: 'any', costPer1k: 0.5, latencyMs: 900, providerRank: 10, orderPinned: true });
   const r = createModelRouter({ models: [fast, preferred] }).route({});
   assert.equal(r.model.id, 'via-first-party', 'Lower order wins between two routes to one model.');
   // The loser stays directly behind it: same model elsewhere is the closest fallback there is.
@@ -514,4 +514,24 @@ test('same-model identity survives provider prefixes and tags', () => {
   assert.notEqual(sameModelKey({ model: 'gpt-5.5' }), sameModelKey({ model: 'gpt-5' }));
   // Two unnamed models are NOT the same model — merging them would hide one entirely.
   assert.equal(sameModelKey({}), '');
+});
+
+test('an order we merely inferred does not overrule a genuinely cheaper route', () => {
+  // The distinction that makes rule 1 safe. A person who ranks two routes by hand can see
+  // the prices and chose anyway, so their order stands. An order derived from a URL is a
+  // guess about reliability — letting it quietly pick the 5x more expensive route to the
+  // SAME model would be the router overriding a real number with an opinion.
+  const dear = defineModel({ id: 'first-party', model: 'acme/thinker', costPer1k: 5, latencyMs: 900, providerRank: 1010 });
+  const cheap = defineModel({ id: 'aggregator', model: 'acme-ai/Thinker', costPer1k: 0.4, latencyMs: 900, providerRank: 1030 });
+  assert.equal(createModelRouter({ models: [dear, cheap] }).route({}).model.id, 'aggregator');
+
+  // Pin the same ranking by hand and it is honoured — the user outranks the guess.
+  const pinned = defineModel({ ...dear, providerRank: 1, orderPinned: true });
+  assert.equal(createModelRouter({ models: [pinned, cheap] }).route({}).model.id, 'first-party');
+});
+
+test('an inferred order still settles two routes that cost the same', () => {
+  const direct = defineModel({ id: 'direct', model: 'acme/thinker', costPer1k: 1, latencyMs: 900, providerRank: 1010 });
+  const hop = defineModel({ id: 'hop', model: 'acme-ai/Thinker', costPer1k: 1, latencyMs: 900, providerRank: 1030 });
+  assert.equal(createModelRouter({ models: [hop, direct] }).route({}).model.id, 'direct', 'Fewer hops wins when nothing else separates them.');
 });
