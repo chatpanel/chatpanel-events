@@ -15,11 +15,13 @@
     "./store.js": "./store.js",
     "./registry.js": "./registry.js",
     "./harness.js": "./harness.js",
-    "./sources.js": "./sources.js"
+    "./sources.js": "./sources.js",
+    "./sources-retrieval.js": "./sources-retrieval.js"
   },
   "files": [
     "index.js",
     "sources.js",
+    "sources-retrieval.js",
     "event.js",
     "ref.js",
     "order.js",
