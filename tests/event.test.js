@@ -20,7 +20,9 @@ test('appender owns seq — callers cannot skip or reuse one', () => {
 
 test('every declared type is validatable and unknown types are rejected', () => {
   assert.ok(ALL_TYPES.includes('automation.suppressed'));
-  assert.equal(ALL_TYPES.length, 21);
+  // 24 = 21 + the assistant family (prompted, message, reasoning). The count is asserted
+  // so growing the schema is a deliberate act: every new type is a forever commitment.
+  assert.equal(ALL_TYPES.length, 24);
   assert.throws(() => validateEvent({
     v: 1, id: 'x', host: 'h', seq: 0, causes: [], at: 1, type: 'turn.exploded', payload: {},
   }), /unknown type/);

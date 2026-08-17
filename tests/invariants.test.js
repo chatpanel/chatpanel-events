@@ -81,3 +81,19 @@ test('I1 — a turn that stepped without assembling context is a violation', () 
 test('I6 — linearization is stable, so replay is deterministic', () => {
   assert.deepEqual(checkInvariants(f1Trace()).filter((v) => v.invariant === 'I6'), []);
 });
+
+test('I7 — an assistant event that inlines its content fails', () => {
+  // Inlining is the tempting shortcut: it makes a trajectory view trivial. It also makes
+  // the log a second copy of every conversation, so exporting the log exports the user's
+  // data and shredding a message leaves it readable forever in an append-only file.
+  let n = 0;
+  const a = createAppender({ host: 'ext', now: () => 1 + n, newId: () => `i7-${n++}` });
+  const ref = makeRef({ kind: 'blob', id: 'b1', hash: 'sha256:' + 'a'.repeat(64) });
+  const ok = a.append('assistant.message', { turnId: 't1', ref, model: 'claude', stopReason: 'end_turn' });
+  assert.deepEqual(checkInvariants([ok]).filter((x) => x.invariant === 'I7'), []);
+
+  const leaky = a.append('assistant.message', { turnId: 't1', ref, text: 'x'.repeat(400) });
+  const found = checkInvariants([leaky]).filter((x) => x.invariant === 'I7');
+  assert.equal(found.length, 1);
+  assert.match(found[0].message, /must reference, never contain/);
+});
