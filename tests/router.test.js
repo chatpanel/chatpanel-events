@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defineModel, defineMiddleware, defineRouteStrategy, createModelRouter, signalsFrom, RouterError } from '../router.js';
+import { defineModel, defineMiddleware, defineRouteStrategy, createModelRouter, signalsFrom, requirementsFor, RouterError } from '../router.js';
 
 const local = defineModel({ id: 'local', reach: 'device', classUsed: 'L', capabilities: ['json'], costPer1k: 0, latencyMs: 1200 });
 const gateway = defineModel({ id: 'gateway', reach: 'trusted', classUsed: 'M', capabilities: ['json', 'tools'], costPer1k: 0.2, latencyMs: 600 });
@@ -360,4 +360,65 @@ test('preference never outranks a real difference', () => {
   const preferredButWorse = defineModel({ id: 'pref', reach: 'any', latencyMs: 4000, costPer1k: 9, providerRank: 0 });
   const better = defineModel({ id: 'better', reach: 'any', latencyMs: 500, costPer1k: 1, providerRank: 99 });
   assert.equal(createModelRouter({ models: [preferredButWorse, better] }).route({}).model.id, 'better');
+});
+
+// ── requirements eliminate; cost and speed only order what survives ─────────
+
+test('a structured task sets a quality FLOOR, not a preference', () => {
+  // The escalation strategy only ever expressed a preference, so a drawing needing exact
+  // coordinates was allowed to consider an 8B model — it merely ranked lower, and ranked
+  // lower still wins once the better ones decline. That is how a chain of five ended on a
+  // model that could not do the job.
+  const req = requirementsFor({ complexity: 'high' }, { structured: true, hasTools: true });
+  assert.ok(req.required.includes('tools'));
+  assert.ok(req.minQuality >= 0.55);
+  assert.ok(req.why.length, 'the requirement gave no reason for itself');
+
+  const tiny = defineModel({ id: 'tiny', reach: 'any', capabilities: ['tools'], quality: 0.3, costPer1k: 0, latencyMs: 100 });
+  const good = defineModel({ id: 'good', reach: 'any', capabilities: ['tools'], quality: 0.9, costPer1k: 5, latencyMs: 900 });
+  const r = createModelRouter({ models: [tiny, good] }).route({ ...req, capabilities: req.required });
+  assert.equal(r.model.id, 'good', 'a cheap fast model beat the quality this task needs');
+  assert.ok(r.rejected.some((x) => x.id === 'tiny' && /below the quality/.test(x.why)));
+});
+
+test('an easy request sets no floor, so cost decides', () => {
+  const req = requirementsFor({ complexity: 'low' }, {});
+  assert.equal(req.minQuality, 0);
+  const tiny = defineModel({ id: 'tiny', reach: 'any', quality: 0.3, costPer1k: 0 });
+  const good = defineModel({ id: 'good', reach: 'any', quality: 0.9, costPer1k: 5 });
+  assert.equal(createModelRouter({ models: [tiny, good] }).route({ ...req, prefer: 'cost' }).model.id, 'tiny');
+});
+
+test('a floor nothing meets is relaxed VISIBLY, and only the floor', () => {
+  // Leaving the user with no answer is worse than a mediocre one — but relaxing silently
+  // would hide why the result is poor. Reach and capability are never relaxed: those are not
+  // preferences about how well something goes.
+  const onlyTiny = defineModel({ id: 'tiny', reach: 'any', capabilities: ['tools'], quality: 0.3 });
+  const r = createModelRouter({ models: [onlyTiny] }).route({ minQuality: 0.8, capabilities: ['tools'] });
+  assert.equal(r.model.id, 'tiny');
+  assert.equal(r.relaxed, true);
+  assert.ok(r.reasons.some((x) => /no model met the quality/.test(x)));
+
+  // A capability nothing has is still a dead end, not a relaxation.
+  assert.equal(createModelRouter({ models: [onlyTiny] }).route({ minQuality: 0.8, capabilities: ['vision'] }).model, null);
+});
+
+test('requirements are read from the request, not guessed', () => {
+  const vision = requirementsFor(signalsFrom({ images: [{}] }), {});
+  assert.ok(vision.required.includes('vision'));
+
+  const big = requirementsFor(signalsFrom({ text: 'x'.repeat(120_000) }), {});
+  assert.ok(big.required.includes('long-context'));
+
+  const code = requirementsFor(signalsFrom({ text: '```js\nfunction f() { return 1; }\n```' }), {});
+  assert.ok(code.required.includes('coding'));
+
+  // A fence is unambiguous at any length; a keyword in prose is not.
+  assert.ok(requirementsFor(signalsFrom({ text: '```js\nf()\n```' }), {}).required.includes('coding'));
+  assert.ok(!requirementsFor(signalsFrom({ text: 'can you import my notes' }), {}).required.includes('coding'),
+    'prose mentioning a keyword was read as a programming task');
+
+  // A short greeting requires nothing at all — the point of deriving requirements is that
+  // most turns have none.
+  assert.deepEqual(requirementsFor(signalsFrom({ text: 'hi' }), {}).required, []);
 });
