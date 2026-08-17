@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defineModel, defineMiddleware, defineRouteStrategy, createModelRouter, signalsFrom, requirementsFor, requirementsForStep, RouterError } from '../router.js';
+import { defineModel, defineMiddleware, defineRouteStrategy, createModelRouter, signalsFrom, requirementsFor, requirementsForStep, sameModelKey, RouterError } from '../router.js';
 
 const local = defineModel({ id: 'local', reach: 'device', classUsed: 'L', capabilities: ['json'], costPer1k: 0, latencyMs: 1200 });
 const gateway = defineModel({ id: 'gateway', reach: 'trusted', classUsed: 'M', capabilities: ['json', 'tools'], costPer1k: 0.2, latencyMs: 600 });
@@ -476,4 +476,42 @@ test('a page turn does not require vision for the whole turn', () => {
   assert.ok(req.required.includes('tools'));
   assert.ok(!req.required.includes('vision'), 'one step that looks made the whole turn a vision task');
   assert.ok(req.minQuality >= 0.55);
+});
+
+// ── the Order a user sets by hand must actually decide ──────────────────────
+
+test('the same model at two providers is settled by order, not by a cost guess', () => {
+  // The complaint that surfaced this: order was a tie-break on exact float equality, which
+  // two candidates essentially never hit, so the setting did nothing. When the model is
+  // IDENTICAL only the path differs — and the path is exactly what order expresses.
+  const fast = defineModel({ id: 'via-aggregator', model: 'deepseek/deepseek-v4-flash', reach: 'any', costPer1k: 0.1, latencyMs: 300, providerRank: 30 });
+  const preferred = defineModel({ id: 'via-first-party', model: 'deepseek-ai/DeepSeek-V4-Flash', reach: 'any', costPer1k: 0.5, latencyMs: 900, providerRank: 10 });
+  const r = createModelRouter({ models: [fast, preferred] }).route({});
+  assert.equal(r.model.id, 'via-first-party', 'Lower order wins between two routes to one model.');
+  // The loser stays directly behind it: same model elsewhere is the closest fallback there is.
+  assert.equal(r.runnersUp[0], 'via-aggregator');
+});
+
+test('order breaks a near-tie between different models', () => {
+  const a = defineModel({ id: 'a', model: 'alpha', costPer1k: 1, latencyMs: 1000, quality: 0.6, providerRank: 40 });
+  const b = defineModel({ id: 'b', model: 'beta', costPer1k: 1.03, latencyMs: 1000, quality: 0.6, providerRank: 10 });
+  const r = createModelRouter({ models: [a, b] }).route({});
+  assert.equal(r.model.id, 'b', 'A 3% cost gap is noise; the stated order decides.');
+  assert.match(r.reasons.at(-1), /order 10 broke a tie/, 'The decision names the lever that made it.');
+});
+
+test('order is a tie-break, not an override — a clearly better model still wins', () => {
+  const cheap = defineModel({ id: 'cheap', model: 'alpha', costPer1k: 0.1, latencyMs: 500, quality: 0.6, providerRank: 90 });
+  const dear = defineModel({ id: 'dear', model: 'beta', costPer1k: 8, latencyMs: 4000, quality: 0.6, providerRank: 1 });
+  const r = createModelRouter({ models: [cheap, dear] }).route({});
+  assert.equal(r.model.id, 'cheap', 'Order must not outrank a real, large difference.');
+  assert.match(r.reasons.at(-1), /best by/, 'and the reason says so');
+});
+
+test('same-model identity survives provider prefixes and tags', () => {
+  assert.equal(sameModelKey({ model: 'deepseek-ai/DeepSeek-V4-Flash' }), sameModelKey({ model: 'deepseek/deepseek-v4-flash' }));
+  assert.equal(sameModelKey({ model: 'gemma4:latest' }), sameModelKey({ model: 'gemma4' }));
+  assert.notEqual(sameModelKey({ model: 'gpt-5.5' }), sameModelKey({ model: 'gpt-5' }));
+  // Two unnamed models are NOT the same model — merging them would hide one entirely.
+  assert.equal(sameModelKey({}), '');
 });
