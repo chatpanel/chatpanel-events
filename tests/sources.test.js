@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifySource, hostMatches, meetReach, sourcePolicyFor, DEFAULT_INTERNAL_PATTERNS } from '../sources.js';
+import { classifySource, hostMatches, meetReach, sourcePolicyFor, DEFAULT_INTERNAL_PATTERNS, INTERNAL_PATTERN_CATALOG } from '../sources.js';
 
 // ── the guard only ever narrows ─────────────────────────────────────────────
 
@@ -177,4 +177,15 @@ test('malformed v6 is rejected rather than half-parsed', () => {
 test('carrier-grade NAT space, which some corporate networks use, is covered', () => {
   assert.equal(classifySource('http://100.70.0.1').internal, true);
   assert.equal(classifySource('http://100.63.0.1').internal, false, '…and stops at the range boundary');
+});
+
+test('the offered list and the applied list cannot drift', () => {
+  // Two copies of this would mean either a rule someone can see and not switch off, or one
+  // they switch off and do not escape. The catalog is the only source.
+  assert.deepEqual(DEFAULT_INTERNAL_PATTERNS, INTERNAL_PATTERN_CATALOG.map((x) => x.pattern));
+  for (const entry of INTERNAL_PATTERN_CATALOG) {
+    assert.ok(entry.label && entry.label.length > 3, `${entry.pattern} needs a human label`);
+  }
+  // No duplicates: the same rule appearing twice makes one checkbox lie.
+  assert.equal(new Set(DEFAULT_INTERNAL_PATTERNS).size, DEFAULT_INTERNAL_PATTERNS.length);
 });
