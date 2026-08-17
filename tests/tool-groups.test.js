@@ -60,3 +60,15 @@ test('registration is revertible and declarations are checked at declare time', 
   assert.equal(reg.list().length, 0);
   assert.throws(() => defineToolGroup({ id: 'y' }), (e) => e instanceof ToolGroupError);
 });
+
+test('a group the user disabled never does its work', async () => {
+  // Filtering the RESULT would still pay the cost: for MCP that cost is connecting to
+  // servers, which is what once made a first turn wait 45 seconds.
+  let built = 0;
+  const reg = createToolGroupRegistry();
+  reg.add(defineToolGroup({ id: 'mcp', build: async () => { built++; return { specs: [] }; } }));
+  reg.add(grp('data', 5));
+  const out = await reg.build({}, { admit: (g) => g.id !== 'mcp' });
+  assert.equal(built, 0, 'a disabled group still ran');
+  assert.deepEqual(out.map((g) => g.id), ['data']);
+});
