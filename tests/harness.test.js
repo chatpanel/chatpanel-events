@@ -90,3 +90,36 @@ test('the report is legible enough to read in CI output', async () => {
   assert.match(text, /order stable\s+yes/);
   assert.match(text, /I1-I6 hold/);
 });
+
+test('assistant content is verified too, not just the toolset', () => {
+  // Checking only `resident` verified what the model was OFFERED while leaving what it was
+  // SHOWN and what it SAID unverified — the half that actually reconstructs a turn.
+  let n = 0;
+  const a = createAppender({ host: 'ext', now: () => 1000 + n, newId: () => `h-${n++}` });
+  const hash = `sha256:${'c'.repeat(64)}`;
+  const ref = { kind: 'chat', id: hash, hash };
+  const events = [
+    a.append('turn.started', { turnId: 't1', kind: 'chat' }),
+    a.append('context.assembled', { turnId: 't1', budget: 0, used: 10, parts: {}, resident: [], reachableCount: 0 }),
+    a.append('assistant.prompted', { turnId: 't1', ref, chars: 12 }),
+    a.append('assistant.message', { turnId: 't1', ref, chars: 8 }),
+    a.append('turn.ended', { turnId: 't1', reason: 'ok', ms: 5 }),
+  ];
+
+  const present = replay(events, { blobs: { lookup: () => ({ hash }) } });
+  assert.equal(present.refs.exact, 2, 'assistant refs were not resolved');
+  assert.equal(present.ok, true);
+
+  // A shredded blob is a PASS: deletion is a feature, and the log still proves what was
+  // sent. Reporting it as failure would make "delete my data" look like corruption.
+  const shredded = replay(events, { blobs: { lookup: () => null } });
+  assert.equal(shredded.refs.unavailable, 2);
+  assert.equal(shredded.ok, true);
+
+  // Content that CHANGED is a failure — the alternative is replay quietly showing today's
+  // text as though it were what the model saw.
+  const drifted = replay(events, { blobs: { lookup: () => ({ hash: `sha256:${'d'.repeat(64)}` }) } });
+  assert.equal(drifted.refs.drifted.length, 2);
+  assert.equal(drifted.ok, false);
+  assert.match(formatReport(drifted), /DRIFTED/);
+});
