@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defineModel, defineMiddleware, createModelRouter, RouterError } from '../router.js';
+import { defineModel, defineMiddleware, defineRouteStrategy, createModelRouter, signalsFrom, RouterError } from '../router.js';
 
 const local = defineModel({ id: 'local', reach: 'device', classUsed: 'L', capabilities: ['json'], costPer1k: 0, latencyMs: 1200 });
 const gateway = defineModel({ id: 'gateway', reach: 'trusted', classUsed: 'M', capabilities: ['json', 'tools'], costPer1k: 0.2, latencyMs: 600 });
@@ -157,4 +157,178 @@ test('registration is revertible for both models and steps', () => {
   un1(); un2();
   assert.equal(router.models().length, 0);
   assert.equal(router.middleware().length, 0);
+});
+
+// ── the DECISION is a plugin too ────────────────────────────────────────────
+
+test('a strategy chooses among the eligible, and says it did', async () => {
+  // Scoring by latency and cost is one strategy, not the only defensible one — a classifier
+  // could route by task, a learned model by what has worked before, a user by pinning one.
+  const byTask = defineRouteStrategy({
+    id: 'by-task', classUsed: 'M',
+    decide: async (eligible, need) => (need.task === 'vision' ? eligible.find((m) => m.capabilities.includes('vision')) : null),
+  });
+  const router = mk({ strategies: [byTask] });
+  const r = await router.routeWith({ task: 'vision' });
+  assert.equal(r.model.id, 'cloud');
+  assert.equal(r.strategy, 'by-task');
+  assert.ok(r.reasons.some((x) => /by-task.*class M/.test(x)), 'the strategy and its cost were not reported');
+});
+
+test('a strategy CANNOT widen past the hard constraints', async () => {
+  // The invariant that has to survive any strategy, however clever or learned: a router
+  // confidently naming a forbidden model must not be able to overrule reach.
+  const rogue = defineRouteStrategy({ id: 'rogue', decide: async () => 'cloud' });
+  const r = await mk({ strategies: [rogue] }).routeWith({ reach: 'device' });
+  assert.equal(r.model.id, 'local', 'a strategy routed past a device-only requirement');
+  assert.equal(r.strategy, 'default-score', 'an ineligible pick was treated as an opinion');
+});
+
+test('a partly-ineligible suggestion keeps its legal half and reports the rest', async () => {
+  const mixed = defineRouteStrategy({ id: 'mixed', decide: async () => ['cloud', 'local'] });
+  const r = await mk({ strategies: [mixed] }).routeWith({ reach: 'device' });
+  assert.equal(r.model.id, 'local');
+  assert.ok(r.reasons.some((x) => /1 suggestion\(s\) ignored/.test(x)));
+});
+
+test('a strategy with no opinion abstains and the next one is asked', async () => {
+  const quiet = defineRouteStrategy({ id: 'quiet', decide: async () => null });
+  const loud = defineRouteStrategy({ id: 'loud', decide: async () => 'gateway' });
+  const r = await mk({ strategies: [quiet, loud] }).routeWith({ reach: 'trusted', capabilities: ['tools'] });
+  assert.equal(r.strategy, 'loud');
+});
+
+test('the first opinion wins — later strategies are not asked', async () => {
+  // A chain that kept consulting after an answer would spend a model call per strategy to
+  // produce one decision.
+  let asked = 0;
+  const first = defineRouteStrategy({ id: 'first', decide: async () => 'local' });
+  const second = defineRouteStrategy({ id: 'second', decide: async () => { asked++; return 'cloud'; } });
+  const r = await mk({ strategies: [first, second] }).routeWith({});
+  assert.equal(r.strategy, 'first');
+  assert.equal(asked, 0);
+});
+
+test('a strategy that throws, hangs or is disabled never breaks routing', async () => {
+  // Routing must not fail because the thing that picks a model was slow, offline or wrong.
+  // A router that can fail is worse than one that is occasionally suboptimal.
+  const boom = defineRouteStrategy({ id: 'boom', decide: async () => { throw new Error('down'); } });
+  assert.equal((await mk({ strategies: [boom] }).routeWith({})).strategy, 'default-score');
+
+  const hang = defineRouteStrategy({ id: 'hang', timeoutMs: 10, decide: () => new Promise(() => {}) });
+  assert.equal((await mk({ strategies: [hang] }).routeWith({})).strategy, 'default-score');
+
+  const off = defineRouteStrategy({ id: 'off', decide: async () => 'cloud' });
+  const router = mk({ strategies: [off], admit: (x) => x.id !== 'off' });
+  assert.equal((await router.routeWith({})).strategy, 'default-score');
+});
+
+test('run() uses the strategy chain, and the middleware still applies', async () => {
+  const pin = defineRouteStrategy({ id: 'pin', decide: async () => 'gateway' });
+  const seen = [];
+  const router = mk({
+    strategies: [pin],
+    middleware: [defineMiddleware({ id: 'note', stage: 'request', run: async (r, ctx) => { seen.push(ctx.model.id); return r; } })],
+  });
+  const { decision } = await router.run({ text: 'x' }, { dispatch: async () => 'ok', need: { capabilities: ['tools'] } });
+  assert.equal(decision.model.id, 'gateway');
+  assert.deepEqual(seen, ['gateway'], 'middleware did not see the strategy-chosen model');
+});
+
+test('strategy declarations are checked, and registration is revertible', () => {
+  assert.throws(() => defineRouteStrategy({ id: 'x' }), (e) => e.code === 'BAD_STRATEGY');
+  assert.throws(() => defineRouteStrategy({ decide: async () => {} }), (e) => e.code === 'BAD_STRATEGY');
+  const router = mk();
+  const un = router.addStrategy(defineRouteStrategy({ id: 's', decide: async () => null }));
+  assert.equal(router.strategies().length, 1);
+  un();
+  assert.equal(router.strategies().length, 0);
+});
+
+// ── constraints beyond privacy: deadline, budget, live health ───────────────
+
+test('a deadline eliminates, it does not discount', async () => {
+  // "Answer within 800ms" is a requirement in the same sense privacy is. Treating it as a
+  // weight is how a live voice reply ends up on the cheapest model that takes four seconds.
+  const r = mk().route({ maxLatencyMs: 500 });
+  assert.equal(r.model.id, 'cloud');
+  assert.ok(r.rejected.some((x) => x.id === 'local' && /exceeds the 500ms deadline/.test(x.why)));
+});
+
+test('a budget eliminates too, and zero is a real budget', async () => {
+  const r = mk().route({ maxCostPer1k: 0 });
+  assert.equal(r.model.id, 'local');
+  assert.ok(r.rejected.some((x) => x.id === 'cloud' && /over the 0 budget/.test(x.why)));
+});
+
+test('a rate-limited model is unavailable, not merely worse', () => {
+  // Ranking it lower would still let it win when it is the only one left — and then fail.
+  const throttled = defineModel({ id: 'throttled', reach: 'device', rateLimited: true });
+  const r = createModelRouter({ models: [throttled] }).route({ reach: 'device' });
+  assert.equal(r.model, null);
+  assert.ok(r.rejected.some((x) => /rate limited/.test(x.why)));
+});
+
+test('a measured latency replaces the declared one', () => {
+  // A number typed into a config is a guess about a service that changes hourly; a number we
+  // recorded is what it actually did.
+  const m = defineModel({ id: 'm', latencyMs: 300, observedLatencyMs: 2400 });
+  assert.equal(m.latencyMs, 2400);
+  assert.equal(m.declaredLatencyMs, 300);
+  // The declared value still stands for a model never called.
+  assert.equal(defineModel({ id: 'n', latencyMs: 300 }).latencyMs, 300);
+});
+
+test('an unknown quality is average, not zero', () => {
+  // Scoring unknown as zero would bury every model we have not benchmarked, and the router
+  // would permanently prefer whatever it happened to measure first.
+  const known = defineModel({ id: 'known', reach: 'any', latencyMs: 1000, costPer1k: 1, quality: 0.9 });
+  const unknown = defineModel({ id: 'unknown', reach: 'any', latencyMs: 1000, costPer1k: 1 });
+  const weak = defineModel({ id: 'weak', reach: 'any', latencyMs: 1000, costPer1k: 1, quality: 0.2 });
+  const r = createModelRouter({ models: [unknown, known, weak] }).route({ prefer: 'quality' });
+  assert.equal(r.model.id, 'known');
+  assert.deepEqual(r.runnersUp, ['unknown', 'weak'], 'an unbenchmarked model was ranked below a known-bad one');
+});
+
+// ── the cheap rung of the escalation ladder ─────────────────────────────────
+
+test('signals are read from the request for free', () => {
+  // Sending a request to a classifier to discover it contains an image, or is four hundred
+  // tokens long, spends a model call to learn something already visible.
+  const s = signalsFrom({ text: 'hi' });
+  assert.equal(s.complexity, 'low');
+  assert.equal(s.modality, 'text');
+  assert.ok(s.approxTokens >= 0);
+
+  assert.equal(signalsFrom({ text: 'x'.repeat(5000) }).complexity, 'high');
+  // A keyword in a twenty-character message is a sentence, not a project.
+  assert.equal(signalsFrom({ text: 'refactor this please' }).complexity, 'low');
+  // The same keyword with enough text around it to be describing real work does count.
+  assert.equal(signalsFrom({ text: `refactor this module. ${'context '.repeat(40)}` }).complexity, 'high');
+  // And plain prose of that length is medium, so length alone is not doing the work.
+  assert.equal(signalsFrom({ text: 'a '.repeat(150) }).complexity, 'medium');
+  assert.equal(signalsFrom({ text: '```js\nconst a = 1\n```' }).complexity, 'high');
+  assert.equal(signalsFrom({ images: [{}] }).modality, 'vision');
+  assert.equal(signalsFrom({ attachments: [{ type: 'audio/wav' }] }).modality, 'audio');
+  assert.equal(signalsFrom({ text: 'これはテストです' }).nonLatin, true);
+  assert.equal(signalsFrom({ text: 'plain english' }).nonLatin, false);
+  // Messages are read as well as raw text, since that is the shape a turn actually has.
+  assert.ok(signalsFrom({ messages: [{ content: 'x'.repeat(5000) }] }).complexity === 'high');
+  // An empty request is answerable, not an error.
+  assert.equal(signalsFrom({}).modality, 'text');
+});
+
+test('signals feed a strategy without the router deciding what they mean', async () => {
+  // The router supplies facts; what counts as "needs the big model" is policy, and policy
+  // belongs in a strategy that can be swapped, not in the thing everyone shares.
+  const escalate = defineRouteStrategy({
+    id: 'complexity', classUsed: 'R',
+    decide: async (eligible, need) => (need.signals?.complexity === 'high'
+      ? eligible.find((m) => m.capabilities.includes('vision')) : eligible.find((m) => m.costPer1k === 0)),
+  });
+  const router = mk({ strategies: [escalate] });
+  const hard = await router.routeWith({ signals: signalsFrom({ text: 'x'.repeat(5000) }) });
+  assert.equal(hard.model.id, 'cloud');
+  const easy = await router.routeWith({ signals: signalsFrom({ text: 'hi' }) });
+  assert.equal(easy.model.id, 'local');
 });
