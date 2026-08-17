@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defineModel, defineMiddleware, defineRouteStrategy, createModelRouter, signalsFrom, requirementsFor, RouterError } from '../router.js';
+import { defineModel, defineMiddleware, defineRouteStrategy, createModelRouter, signalsFrom, requirementsFor, requirementsForStep, RouterError } from '../router.js';
 
 const local = defineModel({ id: 'local', reach: 'device', classUsed: 'L', capabilities: ['json'], costPer1k: 0, latencyMs: 1200 });
 const gateway = defineModel({ id: 'gateway', reach: 'trusted', classUsed: 'M', capabilities: ['json', 'tools'], costPer1k: 0.2, latencyMs: 600 });
@@ -421,4 +421,59 @@ test('requirements are read from the request, not guessed', () => {
   // A short greeting requires nothing at all — the point of deriving requirements is that
   // most turns have none.
   assert.deepEqual(requirementsFor(signalsFrom({ text: 'hi' }), {}).required, []);
+});
+
+test('a missing capability is relaxed in order, and tools never', () => {
+  // A text-only model CAN drive a page badly, and badly beats not at all — but a model that
+  // cannot call tools would ignore half the request, so that one is not negotiable.
+  const textOnly = defineModel({ id: 'text', reach: 'any', capabilities: ['tools'], quality: 0.9 });
+  const req = { capabilities: ['tools', 'vision'], negotiable: ['vision'], minQuality: 0 };
+  const r = createModelRouter({ models: [textOnly] }).route({ ...req });
+  assert.equal(r.model.id, 'text');
+  assert.equal(r.relaxed, true);
+  assert.ok(r.reasons.some((x) => /no model offers vision/.test(x)), 'the relaxation was silent');
+
+  // With no tool-capable model at all, there is no answer — relaxing that would produce one
+  // that ignores the tools the turn is carrying.
+  const noTools = defineModel({ id: 'chat', reach: 'any', capabilities: [], quality: 0.9 });
+  assert.equal(createModelRouter({ models: [noTools] }).route({ ...req }).model, null);
+});
+
+test('a vision-capable model is preferred over a relaxation', () => {
+  const seeing = defineModel({ id: 'sees', reach: 'any', capabilities: ['tools', 'vision'], quality: 0.6, costPer1k: 9 });
+  const blindButCheap = defineModel({ id: 'blind', reach: 'any', capabilities: ['tools'], quality: 0.9, costPer1k: 0 });
+  const r = createModelRouter({ models: [blindButCheap, seeing] })
+    .route({ capabilities: ['tools', 'vision'], negotiable: ['vision'] });
+  assert.equal(r.model.id, 'sees', 'a cheaper blind model beat one that can actually see the page');
+  assert.ok(!r.relaxed);
+});
+
+test('a step declares what IT needs, not what the turn needs', () => {
+  // A turn is a chain of sub-tasks with different demands: read the canvas (structure),
+  // decide what to draw (reasoning), look at the result (vision), write it (structure).
+  // Choosing one model for all of them means paying frontier prices to run a loop, or doing
+  // the hard parts with something that cannot.
+  assert.deepEqual(requirementsForStep('page', { action: 'screenshot' }).required, ['vision']);
+  assert.deepEqual(requirementsForStep('page', { action: 'read_canvas' }).required, ['vision']);
+
+  // Writing an exact payload needs structure, not sight.
+  const write = requirementsForStep('page', { action: 'structured_insert' });
+  assert.deepEqual(write.required, ['tools']);
+  assert.ok(write.minQuality >= 0.55);
+  assert.ok(!write.required.includes('vision'), 'writing a payload was made a vision task');
+
+  // Reading a page as TEXT is not a vision task either — that was the whole point of
+  // read_page existing.
+  assert.ok(!requirementsForStep('page', { action: 'read_page' }).required.includes('vision'));
+
+  assert.deepEqual(requirementsForStep('').required, []);
+});
+
+test('a page turn does not require vision for the whole turn', () => {
+  // Requiring it turn-wide would rule out a strong reasoning model that drives the page well
+  // and only needs to see a screenshot occasionally.
+  const req = requirementsFor({}, { pageTools: true, hasTools: true });
+  assert.ok(req.required.includes('tools'));
+  assert.ok(!req.required.includes('vision'), 'one step that looks made the whole turn a vision task');
+  assert.ok(req.minQuality >= 0.55);
 });
