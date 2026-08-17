@@ -138,3 +138,43 @@ test('an unreadable source stays internal however the host list is edited', () =
   // read at all, which no list can express.
   assert.equal(classifySource('not a url', { patterns: [] }).internal, true);
 });
+
+// ── IPv6, now that the default list names v6 ranges ─────────────────────────
+
+test('IPv6 loopback, link-local and unique-local are internal', () => {
+  assert.equal(classifySource('http://[::1]:8080/x').internal, true);
+  assert.equal(classifySource('http://[fe80::1]/x').internal, true);
+  assert.equal(classifySource('http://[fd12:3456::1]/x').internal, true);
+  // The long form of the same address is the same address.
+  assert.equal(hostMatches('0:0:0:0:0:0:0:1', '::1'), true);
+});
+
+test('a public IPv6 address is not swept in by the intranet rule', () => {
+  // It has no dots and is not IPv4 — the first version matched it, which would have pinned
+  // every v6 host on the internet as internal.
+  assert.equal(classifySource('http://[2606:4700::1111]/x').internal, false);
+});
+
+test('a v6 prefix is matched by BITS, not by leading text', () => {
+  // fc00::/7 covers fc00–fdff. The boundary falls inside a hex digit, so a "starts with"
+  // comparison gets it wrong in both directions.
+  assert.equal(hostMatches('fdff:ffff::1', 'fc00::/7'), true);
+  assert.equal(hostMatches('fe00::1', 'fc00::/7'), false);
+  assert.equal(hostMatches('febf:ffff::1', 'fe80::/10'), true);
+  assert.equal(hostMatches('fec0::1', 'fe80::/10'), false);
+});
+
+test('v4 and v6 never match across families', () => {
+  assert.equal(hostMatches('10.0.0.1', 'fc00::/7'), false);
+  assert.equal(hostMatches('fc00::1', '10.0.0.0/8'), false);
+});
+
+test('malformed v6 is rejected rather than half-parsed', () => {
+  assert.equal(hostMatches('fc00::1::2', 'fc00::/7'), false);
+  assert.equal(hostMatches('gggg::1', 'fc00::/7'), false);
+});
+
+test('carrier-grade NAT space, which some corporate networks use, is covered', () => {
+  assert.equal(classifySource('http://100.70.0.1').internal, true);
+  assert.equal(classifySource('http://100.63.0.1').internal, false, '…and stops at the range boundary');
+});
