@@ -121,3 +121,20 @@ test('the defaults claim only what an address proves', () => {
     true,
   );
 });
+
+test('the default list is a starting point the user can edit, not a floor', () => {
+  // A developer testing against localhost may genuinely want that traffic to reach a cloud
+  // model. If the built-ins were silently prepended to whatever they typed, removing one
+  // would be impossible and the rule would look broken rather than configurable.
+  const mine = ['acme-corp.example'];
+  assert.equal(classifySource('http://localhost:3000', { patterns: mine }).internal, false);
+  assert.equal(classifySource('https://clp.acme-corp.example', { patterns: mine }).internal, true);
+  // An empty list protects nothing by host — that is a choice, and it must be possible.
+  assert.equal(classifySource('http://10.1.1.1', { patterns: [] }).internal, false);
+});
+
+test('an unreadable source stays internal however the host list is edited', () => {
+  // Failing closed is a separate rule from the host patterns: it is about a URL we could not
+  // read at all, which no list can express.
+  assert.equal(classifySource('not a url', { patterns: [] }).internal, true);
+});
