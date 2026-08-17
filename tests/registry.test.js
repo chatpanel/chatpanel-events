@@ -161,3 +161,33 @@ test('lifecycle transitions are observable, so they can become durable facts', (
   off();
   assert.deepEqual(events, ['provided:tab', 'activated:page', 'deactivated:page', 'withdrawn:tab']);
 });
+
+test('withdrawing does not flicker a dependent back on while its provider is still bound', async () => {
+  // Rule 2 stands dependents down BEFORE removing the binding, so their teardown can still
+  // use it. Anything that settles inside that window sees an inactive component whose
+  // requirement is still satisfied and re-activates it — the component arms, disarms, and
+  // the UI flickers. A second dependent is what opens the window: tearing it down withdraws
+  // what IT provided, and a nested withdrawal settles.
+  const log = [];
+  const reg = createRegistry();
+  const release = reg.provide('page.context', { tab: 1 });
+
+  reg.register({
+    name: 'button',
+    requires: ['page.context'],
+    apply: (ctx) => { ctx.effect(() => { log.push('arm'); return () => log.push('disarm'); }); },
+  });
+  reg.register({
+    name: 'tools',
+    requires: ['page.context'],
+    apply: (ctx) => { ctx.provide('page.tools', { build: () => 'toolset' }); },
+  });
+
+  assert.deepEqual(log, ['arm']);
+  assert.deepEqual(reg.active(), ['button', 'tools']);
+
+  release();
+  assert.deepEqual(log, ['arm', 'disarm'], 'the dependent was re-armed inside the withdrawal window');
+  assert.deepEqual(reg.active(), []);
+  assert.equal(reg.has('page.tools'), false, 'a capability provided BY a dependent outlived it');
+});
