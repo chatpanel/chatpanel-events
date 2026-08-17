@@ -535,3 +535,48 @@ test('an inferred order still settles two routes that cost the same', () => {
   const hop = defineModel({ id: 'hop', model: 'acme-ai/Thinker', costPer1k: 1, latencyMs: 900, providerRank: 1030 });
   assert.equal(createModelRouter({ models: [hop, direct] }).route({}).model.id, 'direct', 'Fewer hops wins when nothing else separates them.');
 });
+
+// ── equipment is not demand ─────────────────────────────────────────────────
+
+test('a greeting does not inherit a quality floor from the armed tools', () => {
+  // With page actions switched on, EVERY turn carried pageTools, so "hello" acquired the
+  // 0.55 floor meant for driving a page and was routed to a CLI coding agent. A floor should
+  // come from what was asked for.
+  const chat = requirementsFor(signalsFrom({ text: 'hello' }), { pageTools: true, hasTools: true });
+  assert.equal(chat.minQuality, 0, 'Small talk sets no floor…');
+  assert.ok(chat.negotiable.includes('tools'), '…and does not insist on a capability nothing will call.');
+
+  // The same turn, asked to do something, keeps every requirement.
+  const work = requirementsFor(signalsFrom({ text: 'draw a circle around the logo' }), { pageTools: true, hasTools: true });
+  assert.ok(work.minQuality >= 0.55, 'Real page work still sets the floor…');
+  assert.ok(!work.negotiable.includes('tools'), '…and still requires tools.');
+});
+
+test('short does not mean trivial — a question about your data is work', () => {
+  // "whats my longest streak" is shorter than most greetings and needs the page to answer.
+  // Detecting small talk by LENGTH alone would have sent it to a model that cannot read one.
+  const r = requirementsFor(signalsFrom({ text: 'whats my longest streak' }), { pageTools: true, hasTools: true });
+  assert.ok(r.minQuality >= 0.55);
+  assert.ok(!r.negotiable.includes('tools'));
+});
+
+test('small talk is recognised through a typo', () => {
+  // Matched by the ABSENCE of an action verb or a reference to the user's data, not against a
+  // list of greetings — a list fails on the first misspelling, and people misspell.
+  assert.equal(signalsFrom({ text: 'what can yo uhelp with' }).smalltalk, true);
+  assert.equal(signalsFrom({ text: 'hi' }).smalltalk, true);
+  assert.equal(signalsFrom({ text: 'summarise this page' }).smalltalk, false);
+  assert.equal(signalsFrom({ text: '```js\nf()\n```' }).smalltalk, false, 'Code is never small talk.');
+});
+
+test('a greeting can be answered by a small local model, and work cannot', () => {
+  const small = defineModel({ id: 'local-small', reach: 'device', model: 'gemma4', capabilities: ['json'], quality: 0.5, costPer1k: 0, latencyMs: 700 });
+  const agent = defineModel({ id: 'cli', reach: 'trusted', model: 'gpt-5.6', capabilities: ['json', 'tools', 'coding'], quality: 0.9, costPer1k: 2, latencyMs: 4000 });
+  const router = createModelRouter({ models: [small, agent] });
+
+  const hi = router.route(requirementsFor(signalsFrom({ text: 'hello' }), { pageTools: true, hasTools: true }));
+  assert.equal(hi.model.id, 'local-small', 'Free, local and instant is the right answer to "hello".');
+
+  const job = router.route({ ...requirementsFor(signalsFrom({ text: 'draw a circle around the logo' }), { pageTools: true, hasTools: true }), capabilities: ['tools'] });
+  assert.equal(job.model.id, 'cli', 'and the capable one still gets the actual work');
+});
