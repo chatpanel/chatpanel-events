@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createAppender } from '../event.js';
-import { buildTrajectory, phasesOf, filterEntries, displayName } from '../trajectory.js';
+import { buildTrajectory, phasesOf, filterEntries, displayName, groupRequests, requestMetrics } from '../trajectory.js';
 
 test('trajectory: ordered by cause, content by reference, waterfall never invented', async () => {
 
@@ -70,4 +70,61 @@ test('trajectory: ordered by cause, content by reference, waterfall never invent
 
 
 
+});
+
+test('requests are numbered per model round-trip, not per turn', async () => {
+  // A tool loop asks the model, gets a call, feeds the result back, and asks again. "The
+  // second request is where it went wrong" is a sentence you can act on; "the turn went
+  // wrong" is not. Our own log showed this before it was named — 36 turns carried two
+  // context.assembled events, one per round-trip.
+  let n = 0;
+  const a = createAppender({ host: 'ext', now: () => 1000 + n * 100, newId: () => `r${n++}` });
+  const ref = { kind: 'chat', id: 'sha256:' + 'b'.repeat(64), hash: 'sha256:' + 'b'.repeat(64) };
+  const call = (key, action) => ([
+    a.append('capability.invoked', {
+      capability: 'find', actor: { kind: 'model', id: 'm' }, scope: { kind: 'session', id: 's' },
+      effects: 'idempotent', idempotencyKey: key, turnId: 't', args: { action },
+    }),
+    a.append('capability.resulted', { capability: 'find', ok: true, classUsed: 'X', cost: { ms: 50 }, turnId: 't', idempotencyKey: key, summary: 'ok' }),
+  ]);
+  const entries = buildTrajectory([
+    a.append('turn.started', { turnId: 't', kind: 'chat' }),
+    a.append('assistant.prompted', { turnId: 't', ref, chars: 10 }),
+    ...call('k1', 'web_search'),
+    a.append('assistant.prompted', { turnId: 't', ref, chars: 20 }),
+    ...call('k2', 'web_search'),
+    a.append('assistant.message', { turnId: 't', ref, chars: 30 }),
+    a.append('turn.ended', { turnId: 't', reason: 'ok', ms: 900 }),
+  ]);
+
+  const reqs = groupRequests(entries);
+  assert.equal(reqs.length, 2, 'a tool loop collapsed into one request');
+  assert.deepEqual(reqs.map((r) => r.index), [1, 2]);
+  assert.equal(reqs[0].calls.length, 1);
+  assert.equal(reqs[1].calls.length, 1);
+  // The answer belongs to the request that produced it — that is what makes hierarchy a
+  // relationship rather than a label.
+  assert.ok(reqs[1].answer);
+  assert.equal(reqs[0].answer, null);
+  assert.equal(entries.find((e) => e.kind === 'tool').requestIndex, 1);
+});
+
+test('metrics are derived, and never invented', async () => {
+  const m = requestMetrics({ tokensIn: 4127, tokensOut: 73, tokensReasoning: 29, ms: 1520, ttftMs: 957, model: 'opus' });
+  assert.equal(m.tokensTotal, 4200);
+  // Generation is the part AFTER the first token. Dividing by the total would blame a slow
+  // first token on the model's writing speed.
+  assert.equal(m.generationMs, 563);
+  assert.equal(m.throughput, +(73 / 0.563).toFixed(1));
+
+  // No generation window → no throughput. A rate computed from a 0ms window is a very
+  // large lie, and a plausible-looking one.
+  assert.equal(requestMetrics({ tokensOut: 50, ms: 100, ttftMs: 100 }).throughput, null);
+  assert.equal(requestMetrics({ tokensOut: 0, ms: 500, ttftMs: 100 }).throughput, null);
+  // Missing timings stay null rather than becoming zero — "we did not measure" and "it took
+  // no time" are different claims.
+  const bare = requestMetrics({ tokensOut: 10 });
+  assert.equal(bare.ttftMs, null);
+  assert.equal(bare.generationMs, null);
+  assert.equal(bare.throughput, null);
 });
