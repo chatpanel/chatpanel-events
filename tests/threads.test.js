@@ -97,3 +97,17 @@ test('empty parts do not become empty rows', () => {
   assert.deepEqual(promptEntries({ system: '', messages: [{ role: 'user', content: '  ' }] }), []);
   assert.deepEqual(promptEntries(null), []);
 });
+
+test('runs recorded before `surface` existed still group, by kind', () => {
+  // 1,203 of 1,215 turns in a real export had no surface and every one had a kind. A
+  // grouping that only works on data recorded after the fix groups nothing anyone has.
+  const legacy = [
+    { turnId: 'a', at: 1, sourceId: 'conv1', turn: { kind: 'chat', ms: 10 } },
+    { turnId: 'b', at: 2, sourceId: 'conv1', turn: { kind: 'chat', ms: 10 } },
+    { turnId: 'c', at: 3, sourceId: 'note1', turn: { kind: 'note', ms: 10 } },
+  ];
+  const threads = threadsOf(legacy);
+  assert.equal(threads.length, 2);
+  assert.equal(threads.find((t) => t.sourceId === 'conv1').turns, 2);
+  assert.equal(threads.find((t) => t.sourceId === 'note1').surface, 'note');
+});
