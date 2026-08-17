@@ -87,3 +87,24 @@ test('a plugin from outside must declare it', () => {
   m.register({ id: 'y', source: 'user', kind: 'adapter', label: 'Y' });
   assert.equal(m.list()[0].source, 'user');
 });
+
+test('a change made elsewhere is adopted without echoing back', async () => {
+  // A manifest is not read once at startup. The user toggles in a settings page and every
+  // other context holding one is now wrong — without adopting the change, the toggle
+  // appears to do nothing until reload, which reads as the switch being broken.
+  const writes = [];
+  const m = seed(createManifest({ onChange: (ids) => writes.push(ids) }));
+  assert.equal(m.isEnabled('mcp'), true);
+
+  assert.equal(m.sync(['mcp']), true, 'the change was not adopted');
+  assert.equal(m.isEnabled('mcp'), false);
+  // Echoing it back is how two contexts write over each other forever.
+  assert.deepEqual(writes, [], 'adopting a remote change triggered a write');
+
+  // An identical state is not a change, so a storage event cannot cause needless work.
+  assert.equal(m.sync(['mcp']), false);
+
+  // Required plugins survive whatever arrives — storage can be edited or synced.
+  m.sync(['security', 'mcp']);
+  assert.equal(m.isEnabled('security'), true);
+});
