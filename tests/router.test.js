@@ -332,3 +332,15 @@ test('signals feed a strategy without the router deciding what they mean', async
   const easy = await router.routeWith({ signals: signalsFrom({ text: 'hi' }) });
   assert.equal(easy.model.id, 'local');
 });
+
+test('a model that already failed this request is not re-picked', () => {
+  // Without this, failover re-picks the model that just returned 402 and the retry is a loop.
+  const first = mk().route({ prefer: 'cost' });
+  const next = mk().route({ prefer: 'cost', exclude: [first.model.id] });
+  assert.notEqual(next.model.id, first.model.id);
+  assert.ok(next.rejected.some((x) => x.id === first.model.id && /already failed/.test(x.why)));
+
+  // Excluding everything is an explained dead end, not a silent fallback to the failed one.
+  const all = mk().route({ exclude: ['local', 'gateway', 'cloud'] });
+  assert.equal(all.model, null);
+});
