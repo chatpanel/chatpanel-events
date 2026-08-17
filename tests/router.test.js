@@ -344,3 +344,20 @@ test('a model that already failed this request is not re-picked', () => {
   const all = mk().route({ exclude: ['local', 'gateway', 'cloud'] });
   assert.equal(all.model, null);
 });
+
+test('provider preference breaks ties, alphabet does not', () => {
+  // Ties were breaking on id, which is not a preference — it is the absence of one, and it
+  // sent every equal choice to whichever provider happened to sort first.
+  const viaAggregator = defineModel({ id: 'zzz-direct', reach: 'any', model: 'gpt-5', latencyMs: 700, costPer1k: 3, providerRank: 10 });
+  const viaDirect = defineModel({ id: 'aaa-router', reach: 'any', model: 'gpt-5', latencyMs: 700, costPer1k: 3, providerRank: 80 });
+  const r = createModelRouter({ models: [viaDirect, viaAggregator] }).route({});
+  assert.equal(r.model.id, 'zzz-direct', 'the alphabetically-first provider won over the preferred one');
+});
+
+test('preference never outranks a real difference', () => {
+  // It is a TIEBREAK. A preferred provider that is slower and dearer should still lose, or
+  // the preference quietly becomes a hard pin.
+  const preferredButWorse = defineModel({ id: 'pref', reach: 'any', latencyMs: 4000, costPer1k: 9, providerRank: 0 });
+  const better = defineModel({ id: 'better', reach: 'any', latencyMs: 500, costPer1k: 1, providerRank: 99 });
+  assert.equal(createModelRouter({ models: [preferredButWorse, better] }).route({}).model.id, 'better');
+});
