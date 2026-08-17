@@ -128,3 +128,48 @@ test('metrics are derived, and never invented', async () => {
   assert.equal(bare.generationMs, null);
   assert.equal(bare.throughput, null);
 });
+
+test('routing decisions appear in the trajectory', async () => {
+  // They were being recorded and then not shown, which is the least useful place for them:
+  // the log knew a turn changed model three times and the view that exists to explain a turn
+  // did not mention it.
+  let n = 0;
+  const a = createAppender({ host: 'ext', now: () => 1000 + n * 10, newId: () => `r${n++}` });
+  const entries = buildTrajectory([
+    a.append('turn.started', { turnId: 't', kind: 'chat' }),
+    a.append('policy.changed', {
+      dial: 'route.applied', actor: { kind: 'rule', id: 'model-router' },
+      from: 'auto', to: 'OpenAI · gpt-5.5', reasons: ['best by balanced (4 eligible)'], strategy: 'escalate-on-complexity',
+    }),
+    a.append('automation.fired', { ruleId: 'router:failover', classUsed: 'R', from: 'OpenAI · gpt-5.5', to: 'Claude Code', reason: 'quota' }),
+    a.append('turn.ended', { turnId: 't', reason: 'ok', ms: 100 }),
+  ]);
+
+  const routes = entries.filter((e) => e.kind === 'route');
+  assert.equal(routes.length, 2);
+  assert.match(routes[0].title, /Routed to OpenAI/);
+  assert.equal(routes[0].data.strategy, 'escalate-on-complexity');
+  // The failover names both ends AND why, because "it changed model" without a reason reads
+  // as a fault rather than a recovery.
+  assert.match(routes[1].title, /Failed over to Claude Code/);
+  assert.match(routes[1].detail, /declined \(quota\)/);
+});
+
+test('an observed decision is not reported as an applied one', () => {
+  // Observation records what WOULD have happened. Showing it as what did happen would make
+  // the log describe a substitution that never took place.
+  let n = 0;
+  const a = createAppender({ host: 'ext', now: () => 1000 + n, newId: () => `o${n++}` });
+  const [route] = buildTrajectory([
+    a.append('policy.changed', { dial: 'route.observed', actor: { kind: 'rule', id: 'model-router' }, from: 'gemma', to: 'gpt-5.5', agrees: false, reasons: [] }),
+  ]).filter((e) => e.kind === 'route');
+  assert.match(route.title, /Would route to/);
+  assert.equal(route.data.applied, false);
+});
+
+test('a policy change that is not about routing is left alone', () => {
+  let n = 0;
+  const a = createAppender({ host: 'ext', now: () => 1, newId: () => `p${n++}` });
+  const out = buildTrajectory([a.append('policy.changed', { dial: 'privacy.redaction', actor: { kind: 'user', id: 'u' }, from: 'off', to: 'on' })]);
+  assert.deepEqual(out.filter((e) => e.kind === 'route'), []);
+});
