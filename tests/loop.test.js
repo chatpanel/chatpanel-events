@@ -156,3 +156,21 @@ test('facts reported before a throw still reach the record', async () => {
   await runner.run(defineLoop({ id: 'partial', run: (c) => { c.report({ tokensIn: 12 }); throw new Error('boom'); } })).catch(() => {});
   assert.equal(events.at(-1).payload.tokensIn, 12);
 });
+
+test('duration counts from when the user acted, not when the model call started', async () => {
+  // Setup — assembling tools, connecting to MCP servers — is time the user waited. A
+  // duration that starts at the model call reported 2.6s for a message that took 48.
+  let t = 10_000;
+  const events = [];
+  const runner = createTurnRunner({ now: () => t, newId: () => 'z', emit: (type, p) => events.push({ type, p }) });
+  await runner.run(defineLoop({ id: 'slow', run: () => { t = 58_000; return 'ok'; } }), { startedAt: 10_000 });
+  assert.equal(events.at(-1).p.ms, 48_000);
+});
+
+test('a caller that does not know when the user acted still gets a sane duration', async () => {
+  let t = 0;
+  const events = [];
+  const runner = createTurnRunner({ now: () => (t += 250), newId: () => 'z', emit: (type, p) => events.push({ type, p }) });
+  await runner.run(defineLoop({ id: 'x', run: () => 'ok' }));
+  assert.ok(events.at(-1).p.ms >= 0);
+});
