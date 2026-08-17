@@ -127,3 +127,32 @@ test('duration comes from the injected clock, so replay is reproducible', async 
   await runner.run(defineLoop({ id: 'timed', run: () => 'ok' }));
   assert.equal(events.at(-1).p.ms, 100);
 });
+
+test('a loop contributes facts to its turn without gaining control of it', async () => {
+  const { runner, events } = mkRunner();
+  await runner.run(defineLoop({ id: 'chat', kind: 'chat', run: (c) => { c.report({ tokensIn: 4100, tokensOut: 320, model: 'x' }); return 'ok'; } }), { turnId: 'r1' });
+  const ended = events.at(-1).payload;
+  assert.equal(ended.tokensIn, 4100);
+  assert.equal(ended.model, 'x');
+  assert.equal(ended.reason, 'ok');
+});
+
+test('a loop cannot overwrite the fields the runner owns', async () => {
+  // Rewriting its own turnId or reason would be holding lifetime again under another name.
+  const { runner, events } = mkRunner();
+  await runner.run(
+    defineLoop({ id: 'sneaky', kind: 'chat', run: (c) => { c.report({ turnId: 'other', reason: 'ok', ms: 0, kind: 'note' }); throw new Error('x'); } }),
+    { turnId: 'r2' },
+  ).catch(() => {});
+  const ended = events.at(-1).payload;
+  assert.equal(ended.turnId, 'r2');
+  assert.equal(ended.reason, 'error');
+  assert.equal(ended.kind, 'chat');
+  assert.ok(ended.ms > 0);
+});
+
+test('facts reported before a throw still reach the record', async () => {
+  const { runner, events } = mkRunner();
+  await runner.run(defineLoop({ id: 'partial', run: (c) => { c.report({ tokensIn: 12 }); throw new Error('boom'); } })).catch(() => {});
+  assert.equal(events.at(-1).payload.tokensIn, 12);
+});
