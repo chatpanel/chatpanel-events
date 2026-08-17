@@ -183,3 +183,37 @@ test('an unfinished turn is reported open, not silently dropped', () => {
   assert.equal(t.turn.reason, 'open');
   assert.equal(t.turn.endedAt, null);
 });
+
+test('a turn shows what it was GIVEN and what the answer was based on', () => {
+  // The two halves that were missing. Retrieved material was invisible — a tool ran and an
+  // answer appeared, with nothing connecting them — and the citations were linkified into
+  // the text and then discarded, so the output could not say what stood behind it.
+  const [turn] = turnsOf([
+    ev('turn.started', 1, 't', { kind: 'chat', sourceId: 'c1' }),
+    ev('capability.invoked', 2, 't', { name: 'find', idempotencyKey: 'k' }),
+    ev('context.retrieved', 3, 't', { tool: 'find', count: 3, chars: 2200, sources: [{ rank: 1, title: 'Weekly sync', url: '' }] }),
+    ev('assistant.message', 4, 't', { ref: { id: 'b' }, chars: 300, citations: [{ rank: 1, title: 'Weekly sync', url: '' }] }),
+    ev('turn.ended', 5, 't', { ms: 4 }),
+  ]);
+  const ctx = turn.entries.find((x) => x.kind === 'context');
+  assert.ok(ctx, 'retrieved material is an input, beside the question');
+  assert.match(ctx.title, /Retrieved 3 sources/);
+  assert.equal(ctx.data.tool, 'find');
+
+  const answer = turn.entries.find((x) => x.kind === 'assistant');
+  assert.match(answer.detail, /1 citation/, 'and the answer says what it was based on');
+  assert.equal(answer.data.citations.length, 1);
+});
+
+test('a retrieval that returned no links is still recorded', () => {
+  // Notes and past chats have no urls. Silence here would under-report exactly the private
+  // sources this is meant to make visible.
+  const [turn] = turnsOf([
+    ev('turn.started', 1, 't', { kind: 'chat', sourceId: 'c' }),
+    ev('context.retrieved', 2, 't', { tool: 'find', count: 0, chars: 1800, sources: [] }),
+    ev('turn.ended', 3, 't', { ms: 2 }),
+  ]);
+  const ctx = turn.entries.find((x) => x.kind === 'context');
+  assert.match(ctx.title, /Retrieved material/);
+  assert.match(ctx.detail, /1800 chars/, 'so the volume is visible even with no titles');
+});
