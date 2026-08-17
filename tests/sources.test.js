@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifySource, hostMatches, meetReach, sourcePolicyFor, DEFAULT_INTERNAL_PATTERNS, INTERNAL_PATTERN_CATALOG } from '../sources.js';
+import { classifySource, extractUrls, hostMatches, meetReach, sourcePolicyFor, DEFAULT_INTERNAL_PATTERNS, INTERNAL_PATTERN_CATALOG } from '../sources.js';
 
 // ── the guard only ever narrows ─────────────────────────────────────────────
 
@@ -188,4 +188,30 @@ test('the offered list and the applied list cannot drift', () => {
   }
   // No duplicates: the same rule appearing twice makes one checkbox lie.
   assert.equal(new Set(DEFAULT_INTERNAL_PATTERNS).size, DEFAULT_INTERNAL_PATTERNS.length);
+});
+
+// ── the body is evidence too ────────────────────────────────────────────────
+
+test('an internal link pasted into a message is internal material', () => {
+  // Declared sources are not the only way it enters a turn. Someone pastes a link to an
+  // internal runbook, or a tool result comes back carrying one.
+  const found = extractUrls('can you check http://wiki/runbook and https://example.com/docs?');
+  assert.deepEqual(found, ['http://wiki/runbook', 'https://example.com/docs']);
+  const p = sourcePolicyFor(found, {});
+  assert.equal(p.internal, true, 'one internal link pins the turn');
+  assert.match(p.why, /wiki/);
+});
+
+test('trailing punctuation belongs to the sentence, not the address', () => {
+  assert.deepEqual(extractUrls('see http://10.1.2.3/page.'), ['http://10.1.2.3/page']);
+  assert.deepEqual(extractUrls('(https://x.internal/a)'), ['https://x.internal/a']);
+  assert.deepEqual(extractUrls('"http://wiki/b"'), ['http://wiki/b']);
+});
+
+test('prose that mentions no site pins nothing', () => {
+  // A guard that fires on ordinary text gets switched off, which protects nobody. A bare
+  // 'wiki/page' is indistinguishable from any other path, so it is deliberately not matched.
+  assert.deepEqual(extractUrls('look at wiki/page or the internal runbook'), []);
+  assert.deepEqual(extractUrls(''), []);
+  assert.deepEqual(extractUrls(null), []);
 });
