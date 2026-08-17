@@ -30,13 +30,15 @@ test('a meeting holds its monitors and its summaries as turns of one thread', ()
   assert.equal(meeting.turns, 3);
 });
 
-test('surfaces do not collide on a shared id', () => {
-  // A note and a chat that happen to share an id are two threads, not one.
+test('the parent id groups a thread even when its turns have different surfaces', () => {
+  // Keying on surface+id split a conversation from the autocomplete done inside it. Same
+  // thread, different surface — and that split is the exact grouping this exists to produce.
   const threads = threadsOf([
     run({ turnId: 'a', surface: 'chat', sourceId: 'x', at: 1 }),
-    run({ turnId: 'b', surface: 'note', sourceId: 'x', at: 2 }),
+    run({ turnId: 'b', surface: 'suggestion', sourceId: 'x', at: 2, background: true }),
   ]);
-  assert.equal(threads.length, 2);
+  assert.equal(threads.length, 1);
+  assert.equal(threads[0].surface, 'chat', 'and it is named after the work it exists for');
 });
 
 test('a run with no source is its own thread, not pooled with other orphans', () => {
@@ -110,4 +112,74 @@ test('runs recorded before `surface` existed still group, by kind', () => {
   assert.equal(threads.length, 2);
   assert.equal(threads.find((t) => t.sourceId === 'conv1').turns, 2);
   assert.equal(threads.find((t) => t.sourceId === 'note1').surface, 'note');
+});
+
+import { turnsOf, threadTree } from '../trajectory.js';
+
+let seq = 0;
+const ev = (type, at, turnId, payload = {}) => ({ id: `e${++seq}`, causes: [], type, at, turnId, payload: { turnId, ...payload } });
+
+test('a turn holds everything that happened inside it', () => {
+  // A run used to be a row with a duration and a token count; what it actually DID was
+  // spread across events that only shared an id, so "open the turn" had nothing to open.
+  const events = [
+    ev('turn.started', 10, 't1', { kind: 'chat', sourceId: 'conv-1', surface: 'chat' }),
+    ev('assistant.prompted', 11, 't1', { ref: { id: 'b1' }, chars: 400, contextCount: 1 }),
+    ev('capability.invoked', 12, 't1', { name: 'page', idempotencyKey: 'k1' }),
+    ev('capability.resulted', 13, 't1', { idempotencyKey: 'k1', ok: true }),
+    ev('assistant.message', 14, 't1', { ref: { id: 'b2' }, chars: 90 }),
+    ev('turn.ended', 15, 't1', { ms: 5, reason: 'ok', model: 'gemma4' }),
+  ];
+  const [turn] = turnsOf(events);
+  assert.equal(turn.turnId, 't1');
+  assert.equal(turn.sourceId, 'conv-1', 'and it knows what it was done for');
+  assert.ok(turn.entries.length >= 3, 'with its entries already typed');
+  assert.equal(turn.turn.model, 'gemma4');
+});
+
+test('the parent is the id, not the kind — two chats are two threads', () => {
+  // Every chat shares the kind 'chat'. Grouping on that would merge every conversation ever
+  // had into a single thread, which is worse than not grouping at all.
+  const tree = threadTree([
+    ev('turn.started', 1, 'a', { kind: 'chat', sourceId: 'conv-1' }),
+    ev('turn.ended', 2, 'a', { ms: 1 }),
+    ev('turn.started', 3, 'b', { kind: 'chat', sourceId: 'conv-2' }),
+    ev('turn.ended', 4, 'b', { ms: 1 }),
+    ev('turn.started', 5, 'c', { kind: 'chat', sourceId: 'conv-1' }),
+    ev('turn.ended', 6, 'c', { ms: 1 }),
+  ]);
+  assert.equal(tree.length, 2);
+  assert.equal(tree.find((t) => t.sourceId === 'conv-1').turns, 2);
+});
+
+test('work done FOR a conversation is filed under it', () => {
+  // 264 of 1,215 turns in a real export were suggestions: work done for a conversation and
+  // recorded under nothing, so they could not be grouped at all.
+  const tree = threadTree([
+    ev('turn.started', 1, 'msg', { kind: 'chat', sourceId: 'conv-1' }),
+    ev('turn.ended', 2, 'msg', { ms: 1 }),
+    ev('turn.started', 3, 'sug', { kind: 'suggestion', sourceId: 'conv-1', background: true }),
+    ev('turn.ended', 4, 'sug', { ms: 1 }),
+  ]);
+  assert.equal(tree.length, 1, 'One conversation, two turns — not two unrelated rows.');
+  assert.equal(tree[0].turns, 2);
+  assert.equal(tree[0].runs.filter((r) => r.background).length, 1, 'and the background one is still marked as such');
+});
+
+test('a meeting keeps its monitors and summaries as turns of one meeting', () => {
+  const tree = threadTree([
+    ev('turn.started', 1, 'm1', { kind: 'monitor', sourceId: 'mtg-1', surface: 'meeting' }),
+    ev('turn.ended', 2, 'm1', { ms: 1 }),
+    ev('turn.started', 3, 'm2', { kind: 'summary', sourceId: 'mtg-1', surface: 'meeting' }),
+    ev('turn.ended', 4, 'm2', { ms: 1 }),
+  ]);
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0].surface, 'meeting');
+  assert.equal(tree[0].turns, 2);
+});
+
+test('an unfinished turn is reported open, not silently dropped', () => {
+  const [t] = turnsOf([ev('turn.started', 1, 'x', { kind: 'chat', sourceId: 'c' })]);
+  assert.equal(t.turn.reason, 'open');
+  assert.equal(t.turn.endedAt, null);
 });
