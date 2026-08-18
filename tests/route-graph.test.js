@@ -79,3 +79,30 @@ test('no decision draws nothing rather than throwing', () => {
   assert.equal(none.chosen, null);
   assert.equal(none.chain.length, 0);
 });
+
+test('the graph says what NARROWED the field, not only what won', () => {
+  // "reach 'trusted' within 'trusted'" says a ceiling applied and not what imposed it. The
+  // sentence naming the page that capped the turn was already being built on every route —
+  // `requirementReasons` — and read by nothing, so the most consequential thing that can
+  // happen to a decision was computed, named and thrown away. "Why didn't my Order 1 win" is
+  // usually answered here: a model eliminated by reach never entered the ordering at all.
+  const need = {
+    reach: 'trusted',
+    requirementReasons: ["wiki matches '<intranet>' — kept inside your workspace"],
+  };
+  const g = routeGraph({ decision: decisionFor(need), models });
+  assert.deepEqual(g.constraints, need.requirementReasons);
+
+  // Including — especially — when nothing qualified. That is the case where knowing what
+  // narrowed the field matters most, and it returns early down a different path.
+  const none = routeGraph({
+    decision: createModelRouter({ models }).route({ ...need, capabilities: ['telepathy'] }),
+    models,
+  });
+  assert.equal(none.chosen, null);
+  assert.deepEqual(none.constraints, need.requirementReasons, 'a failed route explained nothing');
+
+  // Absent is an empty list, never undefined — a renderer must not have to guard.
+  assert.deepEqual(routeGraph({ decision: decisionFor({}), models }).constraints, []);
+  assert.deepEqual(routeGraph({ decision: null, models }).constraints, []);
+});
