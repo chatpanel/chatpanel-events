@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defineModel, defineMiddleware, defineRouteStrategy, createModelRouter, signalsFrom, requirementsFor, requirementsForStep, sameModelKey, RouterError } from '../router.js';
+import { defineModel, defineMiddleware, defineRouteStrategy, createModelRouter, signalsFrom, requirementsFor, requirementsForStep, preferenceFor, sameModelKey, RouterError } from '../router.js';
 
 const local = defineModel({ id: 'local', reach: 'device', classUsed: 'L', capabilities: ['json'], costPer1k: 0, latencyMs: 1200 });
 const gateway = defineModel({ id: 'gateway', reach: 'trusted', classUsed: 'M', capabilities: ['json', 'tools'], costPer1k: 0.2, latencyMs: 600 });
@@ -497,7 +497,10 @@ test('order breaks a near-tie between different models', () => {
   const b = defineModel({ id: 'b', model: 'beta', costPer1k: 1.03, latencyMs: 1000, quality: 0.6, providerRank: 10 });
   const r = createModelRouter({ models: [a, b] }).route({});
   assert.equal(r.model.id, 'b', 'A 3% cost gap is noise; the stated order decides.');
-  assert.match(r.reasons.at(-1), /order 10 broke a tie/, 'The decision names the lever that made it.');
+  // The lever that made it, AND how many actually tied — "a tie among 16 eligible" was read
+  // as sixteen models scoring the same when two did.
+  assert.match(r.reasons.at(-1), /order 10 broke a 2-way tie by balanced, of 2 eligible/,
+    'The decision names the lever that made it, and the real size of the tie.');
 });
 
 test('order is a tie-break, not an override — a clearly better model still wins', () => {
@@ -579,4 +582,183 @@ test('a greeting can be answered by a small local model, and work cannot', () =>
 
   const job = router.route({ ...requirementsFor(signalsFrom({ text: 'draw a circle around the logo' }), { pageTools: true, hasTools: true }), capabilities: ['tools'] });
   assert.equal(job.model.id, 'cli', 'and the capable one still gets the actual work');
+});
+
+// ── the score trades; it does not annihilate ────────────────────────────────
+
+test('a free model is ordered by its other qualities, not flattened to zero', () => {
+  // The balanced score MULTIPLIED time by money, so one zero wiped out everything else:
+  // every free model scored exactly 0. A local 8B and a local 26B were indistinguishable
+  // and the winner fell to provider order, then to alphabetical id — which is how "hi" and
+  // a refactor got the same answer for no stated reason.
+  const small = defineModel({ id: 'small', reach: 'device', capabilities: [], costPer1k: 0, latencyMs: 1350, quality: 0.3 });
+  const mid = defineModel({ id: 'mid', reach: 'device', capabilities: [], costPer1k: 0, latencyMs: 1800, quality: 0.6 });
+  const r = createModelRouter({ models: [small, mid] }).route({});
+  assert.equal(r.model.id, 'mid', 'two free models scored identically — quality was invisible');
+  assert.notEqual(r.eligible[0].id, r.eligible[1].id);
+});
+
+test('a single-axis preference optimises the axis it names', () => {
+  // Both of these DIVIDED by quality, which inverts them: asking for speed ranked a frontier
+  // model above an 8B at the same latency, and asking for cheap ranked a $5 model above a
+  // $2 one. A preference that does the opposite of its name is worse than not offering it.
+  const fastCheap = defineModel({ id: 'tiny', reach: 'any', capabilities: [], costPer1k: 1, latencyMs: 300, quality: 0.3 });
+  const slowGood = defineModel({ id: 'frontier', reach: 'any', capabilities: [], costPer1k: 5, latencyMs: 1200, quality: 0.9 });
+  const r = createModelRouter({ models: [fastCheap, slowGood] });
+  assert.equal(r.route({ prefer: 'latency' }).model.id, 'tiny', 'asking for speed did not pick the fastest');
+  assert.equal(r.route({ prefer: 'cost' }).model.id, 'tiny', 'asking for cheap did not pick the cheapest');
+  assert.equal(r.route({ prefer: 'quality' }).model.id, 'frontier');
+});
+
+test('optimising an axis hard cannot reach a model that could not do the job', () => {
+  // What makes 'latency' safe to mean literally the fastest: requirements have already
+  // eliminated everything unsuitable, so "fastest" is only ever the fastest of those left.
+  const tiny = defineModel({ id: 'tiny', reach: 'any', capabilities: [], costPer1k: 0, latencyMs: 100, quality: 0.2 });
+  const able = defineModel({ id: 'able', reach: 'any', capabilities: ['tools'], costPer1k: 3, latencyMs: 900, quality: 0.8 });
+  const r = createModelRouter({ models: [tiny, able] }).route({ prefer: 'latency', capabilities: ['tools'], minQuality: 0.55 });
+  assert.equal(r.model.id, 'able');
+});
+
+// ── which axis a request cares about ────────────────────────────────────────
+
+test('the preference is read from the request, not fixed at balanced', () => {
+  // 'balanced' for everything meant a greeting was worth a frontier model's deliberation and
+  // a refactor was worth saving three seconds on. Neither is what anybody means.
+  assert.equal(preferenceFor(signalsFrom({ text: 'hi' })).prefer, 'latency');
+  const hard = 'refactor this module and migrate every caller step by step, then analyse what breaks across the whole codebase, list the call sites that change behaviour rather than shape, and tell me which of them need a test before the change lands';
+  assert.ok(hard.length > 200, 'fixture assumption: long enough for the keyword heuristics to apply');
+  assert.equal(preferenceFor(signalsFrom({ text: hard })).prefer, 'quality');
+  assert.equal(preferenceFor({}, { structured: true }).prefer, 'quality');
+  assert.equal(preferenceFor({ modality: 'vision' }).prefer, 'quality');
+  // Real work, but nothing exact or hard about it: no reason to favour either axis.
+  assert.equal(preferenceFor(signalsFrom({ text: 'summarize the last three release notes for me' })).prefer, 'balanced');
+});
+
+test('a turn carrying tools is never "answer fast at any quality"', () => {
+  // `smalltalk` alone is too generous to decide this: it calls "what did we decide in the
+  // standup" trivial, and answering THAT on an 8B to save half a second is the same mistake
+  // as the greeting on a frontier model, pointing the other way. The turn must also be
+  // carrying nothing to look up — which toolNeedFor already decided, from a narrower test.
+  const sig = signalsFrom({ text: 'what did we decide in the standup' });
+  assert.equal(sig.smalltalk, true, 'fixture assumption: the loose signal calls this small talk');
+  assert.equal(preferenceFor(sig, { hasTools: true }).prefer, 'balanced');
+  assert.equal(preferenceFor(sig, { hasTools: false }).prefer, 'latency');
+});
+
+test('a quality floor outranks any wish to be quick', () => {
+  assert.equal(preferenceFor({ smalltalk: true }, { minQuality: 0.55 }).prefer, 'balanced');
+});
+
+test('every preference explains itself', () => {
+  for (const s of [{ smalltalk: true }, { complexity: 'high' }, {}]) assert.ok(preferenceFor(s).why);
+});
+
+test('a prefix in the small-talk exclusion actually fires', () => {
+  // `summar` and `analy` were written to catch summarize / summarise / summary and
+  // analyse / analyze, but the alternation ends in \b — so each demanded a word boundary
+  // immediately after the prefix and matched nothing. "summarize this document" was
+  // classified as small talk for as long as that was true, which made tools negotiable for
+  // it and kept it away from every escalation. A prefix that can never fire is worse than an
+  // absent one: it reads as covered.
+  for (const t of ['summarize this document', 'summarise the notes', 'summary of the call', 'analyse the fallout', 'analyze the numbers']) {
+    assert.equal(signalsFrom({ text: t }).smalltalk, false, `"${t}" was read as small talk`);
+  }
+  assert.equal(signalsFrom({ text: 'hi' }).smalltalk, true);
+});
+
+// ── the catch-all is a model the user named ─────────────────────────────────
+
+const pinned = (id, over = {}) => defineModel({
+  id, reach: 'any', capabilities: ['tools'], costPer1k: 3, latencyMs: 900, quality: 0.9,
+  providerRank: 1, orderPinned: true, ...over,
+});
+const guessed = (id, over = {}) => defineModel({
+  id, reach: 'any', capabilities: ['tools'], costPer1k: 0, latencyMs: 400, quality: 0.4,
+  providerRank: 1000, orderPinned: false, ...over,
+});
+
+test('with no opinion anywhere, the model the user put first answers', () => {
+  // The score was deciding this from inferred latency and a cost regex — guesses — and
+  // presenting the result as a decision. It is the one case where there IS a right answer
+  // and it is not ours to invent.
+  const r = createModelRouter({ models: [guessed('cheap'), pinned('mine')] }).route({});
+  assert.equal(r.model.id, 'mine');
+  assert.equal(r.strategy, 'declared-default');
+  assert.match(r.reasons.at(-1), /your default \(Order 1\)/);
+});
+
+test('a rule with an opinion outranks the default — otherwise the rules are decoration', () => {
+  const models = [guessed('cheap'), pinned('mine')];
+  // A derived preference IS a rule speaking: a greeting asking for speed, exact work asking
+  // for quality. Landing every turn on Order 1 regardless would make the rules ornamental.
+  assert.equal(createModelRouter({ models }).route({ prefer: 'latency' }).model.id, 'cheap');
+  assert.equal(createModelRouter({ models }).route({ prefer: 'cost' }).model.id, 'cheap');
+});
+
+test('a strategy outranks the default too', async () => {
+  const models = [guessed('cheap'), pinned('mine')];
+  const pick = defineRouteStrategy({ id: 'pick-cheap', classUsed: 'R', decide: async (e) => e.find((m) => m.id === 'cheap') });
+  const r = await createModelRouter({ models, strategies: [pick] }).routeWith({});
+  assert.equal(r.model.id, 'cheap');
+  assert.equal(r.strategy, 'pick-cheap');
+});
+
+test('the default still has to qualify — it is a preference, never a bypass', () => {
+  // Requirements eliminate before any of this. A default that cannot do the work is not the
+  // answer to "what should do the work".
+  const r = createModelRouter({ models: [guessed('able'), pinned('mine', { capabilities: [] })] })
+    .route({ capabilities: ['tools'] });
+  assert.equal(r.model.id, 'able');
+  assert.ok(r.rejected.some((x) => x.id === 'mine'));
+
+  // And privacy is still a ceiling, not something a default can argue with.
+  const local = defineModel({ id: 'local', reach: 'device', capabilities: ['tools'], costPer1k: 0, latencyMs: 1200, quality: 0.4 });
+  assert.equal(createModelRouter({ models: [local, pinned('mine')] }).route({ reach: 'device' }).model.id, 'local');
+});
+
+test('an INFERRED order is not a declaration', () => {
+  // `orderPinned` is what separates a number the user chose from a number we made up from a
+  // URL. Most setups pin nothing and must be unaffected — the score still decides there.
+  const r = createModelRouter({ models: [guessed('a'), guessed('b', { costPer1k: 5, latencyMs: 2000 })] }).route({});
+  assert.equal(r.strategy, 'default-score');
+  assert.equal(r.model.id, 'a');
+});
+
+test('the next pinned model takes over when the first cannot do the work', () => {
+  const r = createModelRouter({
+    models: [guessed('other'), pinned('first', { capabilities: [] }), pinned('second', { providerRank: 2 })],
+  }).route({ capabilities: ['tools'] });
+  assert.equal(r.model.id, 'second');
+});
+
+// ── length is not difficulty when the length is the material ────────────────
+
+test('background work gets no quality floor from the size of what it was handed', () => {
+  // The topic pass inlines an entire transcript, so a conversation carrying one pasted
+  // dashboard produced a 6,300-character prompt, read as 'high' complexity, and a 0.55 floor
+  // that eliminated every local model. The one call that should always be cheap got more
+  // expensive the more material there was to chew through.
+  const big = { complexity: 'high', approxTokens: 1600 };
+  assert.equal(requirementsFor(big, {}).minQuality, 0.55);
+  assert.equal(requirementsFor(big, { background: true }).minQuality, 0, 'a background pass kept the floor');
+});
+
+test('needing to FIT survives — only the quality floor is dropped', () => {
+  // Whether a model can hold the material is a real capability question and has nothing to
+  // do with who is waiting for the answer.
+  const huge = { complexity: 'high', approxTokens: 50_000, modality: 'text' };
+  assert.ok(requirementsFor(huge, { background: true }).required.includes('long-context'));
+  assert.ok(requirementsFor({ modality: 'vision' }, { background: true }).required.includes('vision'));
+  // And tools stay required when the turn carries them: nothing about being background makes
+  // a model that cannot call a tool able to.
+  assert.ok(requirementsFor({}, { background: true, hasTools: true }).required.includes('tools'));
+});
+
+test('background work spends as little as possible', () => {
+  assert.equal(preferenceFor({ complexity: 'high' }, { background: true }).prefer, 'cost');
+  // Even structured background work — a topic index IS a structured artifact, and it has a
+  // deterministic fallback when the model declines.
+  assert.equal(preferenceFor({ complexity: 'high' }, { background: true, structured: true }).prefer, 'cost');
+  // The user's own turn is unaffected.
+  assert.equal(preferenceFor({ complexity: 'high' }, {}).prefer, 'quality');
 });

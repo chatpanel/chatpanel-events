@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
@@ -16,10 +16,14 @@
     "./registry.js": "./registry.js",
     "./harness.js": "./harness.js",
     "./sources.js": "./sources.js",
-    "./sources-retrieval.js": "./sources-retrieval.js"
+    "./sources-retrieval.js": "./sources-retrieval.js",
+    "./tool-need.js": "./tool-need.js",
+    "./route-graph.js": "./route-graph.js"
   },
   "files": [
     "index.js",
+    "tool-need.js",
+    "route-graph.js",
     "sources.js",
     "sources-retrieval.js",
     "event.js",
