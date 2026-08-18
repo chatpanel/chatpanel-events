@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeSourceStore, manifestText, readSource, sourceId, approxTokens } from '../sources-retrieval.js';
+import { makeSourceStore, manifestText, readSource, sourceId, approxTokens, shortUrl } from '../sources-retrieval.js';
 
 const long = (word, n) => Array.from({ length: n }, (_, i) => `Section ${i}. ${word} ${'filler '.repeat(30)}`).join('\n\n');
 
@@ -78,4 +78,27 @@ test('ids are derived from the source, not random', () => {
 test('sources with no text and no url are not offered at all', () => {
   // An entry the model can ask for and get nothing from is worse than no entry.
   assert.equal(makeSourceStore([{ title: 'empty' }, null, { title: 'real', text: 'x' }]).entries.length, 1);
+});
+
+test('the manifest names where a source came from, not its tracking parameters', () => {
+  // A Google results URL carries ~1,000 characters of sca_esv / gs_lp / sclient machinery,
+  // and the manifest printed every one of them on every turn — a quarter of a thousand
+  // tokens the model cannot use and must still read past.
+  const noisy = 'https://www.google.com/search?q=how+do+tides+work&sca_esv=b7ba455e265f3a41'
+    + '&sxsrf=APpeQnubLaAc4D1AAc19wtav1heyFQA_0Q%3A1787016282969&ei=WrSDaqffOqn30PEPhqmtyQQ'
+    + '&biw=1134&bih=1035&oq=mel&gs_lp=Egxnd3Mtd2l6LXNlcnAiA21lbCoCCAEyDRAAGIAEGIoFGEMYsQMy&sclient=gws-wiz-serp';
+  const short = shortUrl(noisy);
+  assert.ok(short.length < 80, `still ${short.length} chars`);
+  assert.match(short, /google\.com\/search/, 'the source is no longer identifiable');
+  // The QUERY is often the whole meaning of a search URL, so a short one survives.
+  assert.match(short, /tides/);
+
+  // Short URLs are left exactly alone — most sources are not search pages.
+  const plain = 'https://example.com/blog/post-1';
+  assert.equal(shortUrl(plain), plain);
+
+  // An unparseable address is truncated but never guessed at: a source we cannot read is
+  // still a source the model has to be able to name.
+  assert.ok(shortUrl('not a url at all '.repeat(20)).endsWith('…'));
+  assert.equal(shortUrl(''), '');
 });

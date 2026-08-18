@@ -77,3 +77,21 @@ test('a long message built only from pleasantries is not understood, so it is ar
   assert.equal(toolNeedFor({ request: { text: 'ok ok ok ok ok ok ok ok' } }).tools, true);
   assert.equal(toolNeedFor({ request: { text: '' } }).tools, true);
 });
+
+test('the tab you happen to be on is metadata, not material', () => {
+  // The side panel auto-attaches the current page to every send, so "hi" on a search results
+  // page arrived carrying an attachment and armed the full toolset: three tools, ~2,300
+  // tokens, and a page read — to say hello back. The open tab says WHERE the user is; it is
+  // not something they asked about.
+  const ambient = [{ kind: 'page', title: 'how do tides work - Google Search', auto: true }];
+  assert.equal(toolNeedFor({ request: { text: 'hi' }, attachments: ambient }).tools, false);
+
+  // A page the user actually attached has no such mark, and still counts.
+  assert.equal(toolNeedFor({ request: { text: 'hi' }, attachments: [{ kind: 'page', title: 'A report' }] }).tools, true);
+
+  // And asking ABOUT the open page arms tools by the ordinary path — the question is not a
+  // pleasantry, so what happens to be attached never enters into it.
+  for (const t of ['summarise this page', 'what does this article say', 'read this and give me the key points']) {
+    assert.equal(toolNeedFor({ request: { text: t }, attachments: ambient }).tools, true, `"${t}" was left without tools`);
+  }
+});
