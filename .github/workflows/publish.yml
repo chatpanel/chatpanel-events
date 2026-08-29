@@ -10,12 +10,14 @@
 # Version-guarded: an unchanged version just skips.
 name: Publish to npm
 
-# TRIGGER IS MANUAL UNTIL THE FIRST CONSUMER LANDS.
-# The event schema is append-only forever, so publishing before a real consumer has
-# exercised it burns a version number on a contract we may still want to change. Flip
-# this back to `push: branches: [main]` once (a) the npm Trusted Publisher entry below
-# exists and (b) the extension has actually written events through this package.
+# Publishes on push, like pii/bridge/gateway. The manual gate this replaced was there
+# until a real consumer existed — the schema is append-only forever, so burning a version
+# on a contract nobody had exercised was the risk. Both conditions are now met: the
+# Trusted Publisher entry works (0.3.0 published through it) and the extension vendors
+# these modules. Version-guarded, so a push that doesn't bump simply skips.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
