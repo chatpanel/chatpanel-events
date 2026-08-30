@@ -572,6 +572,67 @@ test('small talk is recognised through a typo', () => {
   assert.equal(signalsFrom({ text: '```js\nf()\n```' }).smalltalk, false, 'Code is never small talk.');
 });
 
+test('a question about something is work, not small talk', () => {
+  // The action-verb list was a list of things you DO, so asking to UNDERSTAND matched nothing
+  // and came back as small talk. That is what makes preferenceFor ask for latency, and the
+  // latency axis reads nothing but milliseconds — so a genuine question was routed for speed
+  // and went past a free local model to a third party.
+  assert.equal(signalsFrom({ text: 'can you explain what this project does?' }).smalltalk, false);
+  assert.equal(signalsFrom({ text: 'why is the build failing' }).smalltalk, false);
+  assert.equal(signalsFrom({ text: 'how does routing pick a model' }).smalltalk, false);
+  assert.equal(signalsFrom({ text: 'compare these two options' }).smalltalk, false);
+
+  // And the pleasantries this test exists to catch are still pleasantries. 'how' is admitted
+  // only when it opens a question about something, or "how are you" would have flipped.
+  assert.equal(signalsFrom({ text: 'how are you' }).smalltalk, true);
+  assert.equal(signalsFrom({ text: 'what can yo uhelp with' }).smalltalk, true);
+  assert.equal(signalsFrom({ text: 'hi' }).smalltalk, true);
+});
+
+test('asking for code is a coding request, not only pasting some', () => {
+  // `code` read the MATERIAL and nothing else, so a request with no fence required no coding
+  // capability — which made the per-model Coding switch unreachable: turning it off for one
+  // agent changed nothing, because nothing ever asked for it, and that agent kept winning.
+  assert.equal(signalsFrom({ text: 'write a function that debounces this' }).code, true);
+  assert.equal(signalsFrom({ text: 'fix the bug in the export module' }).code, true);
+  assert.ok(requirementsFor(signalsFrom({ text: 'refactor this component to use hooks' })).required.includes('coding'));
+
+  // A verb NEXT TO a code noun, because either alone is ordinary prose — and a signal that
+  // fires on prose would put a quality floor on every message.
+  assert.equal(signalsFrom({ text: 'write a note about the offsite' }).code, false);
+  assert.equal(signalsFrom({ text: 'can you test whether the room is free' }).code, false);
+  assert.equal(signalsFrom({ text: 'update my address' }).code, false);
+});
+
+test('nearer wins a close call, and loses a real difference', () => {
+  // The provider order claims "the user's own machine: no quota, no outage, no third party"
+  // and could never act on it — providerRank only arranges a near-tie, and a local model and
+  // a hosted one are almost never inside the tie band. So every preference weighed time and
+  // money and ignored where the request goes.
+  const near = defineModel({ id: 'near', reach: 'device', capabilities: [], costPer1k: 0, latencyMs: 1000, quality: 0.6 });
+  const far = defineModel({ id: 'far', reach: 'any', capabilities: [], costPer1k: 0, latencyMs: 900, quality: 0.6 });
+  assert.equal(createModelRouter({ models: [near, far] }).route({}).model.id, 'near',
+    'a third party won a coin-flip against the user\'s own machine');
+  assert.equal(createModelRouter({ models: [near, far] }).route({ prefer: 'latency' }).model.id, 'near');
+
+  // But it is a nudge, not a veto: a model that is genuinely much faster still wins.
+  const quick = defineModel({ id: 'quick', reach: 'any', capabilities: [], costPer1k: 0, latencyMs: 300, quality: 0.6 });
+  assert.equal(createModelRouter({ models: [near, quick] }).route({ prefer: 'latency' }).model.id, 'quick');
+
+  // And it never touches 'quality' — a nearer model is not a better one, and saying so would
+  // invert that axis the way dividing by quality once inverted speed and cost.
+  const strong = defineModel({ id: 'strong', reach: 'any', capabilities: [], costPer1k: 3, latencyMs: 900, quality: 0.9 });
+  assert.equal(createModelRouter({ models: [near, strong] }).route({ prefer: 'quality' }).model.id, 'strong');
+});
+
+test('reach is still a ceiling — the nudge never admits what the ceiling excluded', () => {
+  const near = defineModel({ id: 'near', reach: 'device', capabilities: [], costPer1k: 0, latencyMs: 1000, quality: 0.6 });
+  const far = defineModel({ id: 'far', reach: 'any', capabilities: [], costPer1k: 0, latencyMs: 100, quality: 0.9 });
+  const r = createModelRouter({ models: [near, far] }).route({ reach: 'device', prefer: 'latency' });
+  assert.equal(r.model.id, 'near');
+  assert.ok(r.rejected.some((x) => x.id === 'far' && /exceeds/.test(x.why)));
+});
+
 test('a greeting can be answered by a small local model, and work cannot', () => {
   const small = defineModel({ id: 'local-small', reach: 'device', model: 'gemma4', capabilities: ['json'], quality: 0.5, costPer1k: 0, latencyMs: 700 });
   const agent = defineModel({ id: 'cli', reach: 'trusted', model: 'gpt-5.6', capabilities: ['json', 'tools', 'coding'], quality: 0.9, costPer1k: 2, latencyMs: 4000 });
