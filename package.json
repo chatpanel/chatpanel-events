@@ -1,7 +1,7 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.4.0",
-  "description": "The canonical ChatPanel event-log and capability contracts — typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
+  "version": "0.5.0",
+  "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -25,6 +25,7 @@
     "./router.js": "./router.js",
     "./rules.js": "./rules.js",
     "./search-engines.js": "./search-engines.js",
+    "./skill-vars.js": "./skill-vars.js",
     "./sources-retrieval.js": "./sources-retrieval.js",
     "./sources.js": "./sources.js",
     "./store.js": "./store.js",
@@ -35,6 +36,8 @@
     "./upcast.js": "./upcast.js"
   },
   "files": [
+    "LICENSE",
+    "README.md",
     "adapters.js",
     "capability.js",
     "citations.js",
@@ -55,6 +58,7 @@
     "router.js",
     "rules.js",
     "search-engines.js",
+    "skill-vars.js",
     "sources-retrieval.js",
     "sources.js",
     "store.js",
@@ -62,9 +66,7 @@
     "tool-groups.js",
     "tool-need.js",
     "trajectory.js",
-    "upcast.js",
-    "LICENSE",
-    "README.md"
+    "upcast.js"
   ],
   "scripts": {
     "test": "node --test tests/*.test.js"
