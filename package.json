@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
@@ -27,6 +27,7 @@
     "./scopes.js": "./scopes.js",
     "./search-engines.js": "./search-engines.js",
     "./skill-manifest.js": "./skill-manifest.js",
+    "./skill-scan.js": "./skill-scan.js",
     "./skill-sources.js": "./skill-sources.js",
     "./skill-vars.js": "./skill-vars.js",
     "./sources-retrieval.js": "./sources-retrieval.js",
@@ -63,6 +64,7 @@
     "scopes.js",
     "search-engines.js",
     "skill-manifest.js",
+    "skill-scan.js",
     "skill-sources.js",
     "skill-vars.js",
     "sources-retrieval.js",
