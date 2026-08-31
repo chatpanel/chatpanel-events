@@ -171,8 +171,13 @@ test('a question is detected with or without the punctuation', () => {
   assert.equal(jobsForEvent(jobs, delta([{ t: 1, speaker: 'Jordan Blake', text: 'we ship on friday' }]), { registry, ctx: { isSelf } }).length, 0);
   assert.equal(jobsForEvent(jobs, delta([{ t: 1, speaker: 'Jordan Blake', text: 'what?' }]), { registry, ctx: { isSelf } }).length, 0,
     'a two-word "what?" is not worth waking a model for');
-  assert.equal(jobsForEvent(jobs, delta([{ t: 1, speaker: 'Alex Rivera', text: 'how are we handling the rollback' }]), { registry, ctx: { isSelf } }).length, 0,
-    'by default it watches for what OTHERS ask');
+  // ANYONE by default, including you: the first thing someone does is test it alone in a
+  // call, ask a question themselves, and watch nothing happen.
+  assert.equal(jobsForEvent(jobs, delta([{ t: 1, speaker: 'Alex Rivera', text: 'how are we handling the rollback' }]), { registry, ctx: { isSelf } }).length, 1,
+    'your own question counts by default');
+  const others = [evJob(questionTrigger.id, { speaker: 'others' })];
+  assert.equal(jobsForEvent(others, delta([{ t: 1, speaker: 'Alex Rivera', text: 'how are we handling the rollback' }]), { registry, ctx: { isSelf } }).length, 0,
+    'and "only what other people ask" is still expressible');
 });
 
 test('joining, starting, and a spoken command', () => {

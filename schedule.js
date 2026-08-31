@@ -250,6 +250,9 @@ export const questionTrigger = defineTrigger({
   watches: ['meeting.transcript.delta'],
   matches: (event, params = {}, ctx = {}) => {
     for (const seg of event.segments || []) {
+      // Other people by default: this exists for reacting to what someone ELSE asks (an
+      // interview, a customer call). The job form offers the choice, so 'anyone' and 'me' are
+      // one dropdown away rather than an invisible default nobody can reach.
       if (!speakerAllowed(params.speaker || 'others', seg.speaker, ctx)) continue;
       const text = String(seg.text || '').trim();
       if (text.length < 8) continue; // "what?" is not a question worth waking a model for

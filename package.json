@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
@@ -40,6 +40,7 @@
     "./tool-need.js": "./tool-need.js",
     "./trajectory.js": "./trajectory.js",
     "./upcast.js": "./upcast.js",
+    "./vault.js": "./vault.js",
     "./voice-intents.js": "./voice-intents.js",
     "./observability.js": "./observability.js",
     "./flowchart.js": "./flowchart.js",
@@ -88,6 +89,7 @@
     "tool-need.js",
     "trajectory.js",
     "upcast.js",
+    "vault.js",
     "voice-intents.js",
     "view.js",
     "widget.js"
