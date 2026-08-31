@@ -44,3 +44,19 @@ test('a widget cannot widen its own permissions by rewriting itself', () => {
   // And a widget that asks for nothing holds nothing, whatever was approved before.
   assert.deepEqual(effectiveGrants(w(), approved), []);
 });
+
+test('a widget carries its own icon, derived from what it is called', async () => {
+  const { widgetIcon } = await import('../widget.js');
+  // Pinned widgets sit next to each other in a narrow strip; identical marks defeat the point.
+  assert.equal(widgetIcon({ name: 'Pomodoro Timer' }), 'timer');
+  assert.equal(widgetIcon({ name: 'Standup Notes' }), 'notebook-pen', 'plurals count');
+  assert.equal(widgetIcon({ name: 'Habit Tracker' }), 'list-checks');
+  assert.equal(widgetIcon({ name: 'Unit Converter' }), 'scale');
+  // An explicit choice always wins over the guess.
+  assert.equal(widgetIcon({ name: 'Pomodoro Timer', icon: 'target' }), 'target');
+  // And anything unrecognised still gets a mark that is not the shelf's own.
+  assert.equal(widgetIcon({ name: 'Zxq' }), 'app-window');
+  // It is a NAME, so a client maps it to whatever icon set it has.
+  assert.match(widgetIcon({ name: 'Tip Calculator' }), /^[a-z][a-z0-9-]*$/);
+  assert.throws(() => validateWidget({ ...w(), icon: '⏱' }), /icon name/, 'not an emoji');
+});
