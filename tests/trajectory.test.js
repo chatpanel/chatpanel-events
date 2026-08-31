@@ -173,3 +173,34 @@ test('a policy change that is not about routing is left alone', () => {
   const out = buildTrajectory([a.append('policy.changed', { dial: 'privacy.redaction', actor: { kind: 'user', id: 'u' }, from: 'off', to: 'on' })]);
   assert.deepEqual(out.filter((e) => e.kind === 'route'), []);
 });
+
+test('redaction appears in the trajectory — what the model actually saw', () => {
+  // A run that shows the prompt, the tools and the answer but not the redaction cannot
+  // answer the question the product exists to answer.
+  const ev = (type, payload, seq) => ({
+    v: 1, id: `e${seq}`, seq, at: 1000 + seq, ts: 1000 + seq, type, host: 'ext',
+    actor: { kind: 'user', id: 'u' }, scope: { kind: 'session', id: 's' }, causes: [], payload,
+  });
+  const entries = buildTrajectory([
+    ev('turn.started', {}, 0),
+    ev('privacy.redacted', { counts: { PERSON: 3, EMAIL: 1 } }, 1),
+    ev('assistant.prompted', { chars: 500 }, 2),
+  ]);
+  const step = entries.find((x) => x.kind === 'privacy');
+  assert.ok(step, 'a privacy step is present');
+  assert.match(step.title, /Redacted 4 values before sending/);
+  assert.match(step.detail, /3 person/, 'most frequent type first');
+  assert.match(step.detail, /1 email/);
+  assert.deepEqual(step.data.counts, { PERSON: 3, EMAIL: 1 });
+  // Counts only — the contract keeps values out of the event, so they can't reach the view.
+  assert.ok(!JSON.stringify(step).includes('@'), 'no real values anywhere in the step');
+});
+
+test('a turn with nothing redacted adds no privacy step', () => {
+  const ev = (type, payload, seq) => ({
+    v: 1, id: `e${seq}`, seq, at: 1000 + seq, ts: 1000 + seq, type, host: 'ext',
+    actor: { kind: 'user', id: 'u' }, scope: { kind: 'session', id: 's' }, causes: [], payload,
+  });
+  const entries = buildTrajectory([ev('turn.started', {}, 0), ev('privacy.redacted', { counts: {} }, 1)]);
+  assert.equal(entries.filter((x) => x.kind === 'privacy').length, 0, 'no empty row');
+});
