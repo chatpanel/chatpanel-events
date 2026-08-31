@@ -253,7 +253,11 @@ export const questionTrigger = defineTrigger({
       // Other people by default: this exists for reacting to what someone ELSE asks (an
       // interview, a customer call). The job form offers the choice, so 'anyone' and 'me' are
       // one dropdown away rather than an invisible default nobody can reach.
-      if (!speakerAllowed(params.speaker || 'others', seg.speaker, ctx)) continue;
+      // ANYONE by default, including you. 'others' read well — this exists for reacting to
+      // what someone ELSE asks — but it made the first thing anybody does (test it alone in a
+      // call, ask a question, wait) match nothing, so the feature looked dead. "Only what
+      // other people ask" is still one dropdown away in the job form.
+      if (!speakerAllowed(params.speaker || 'anyone', seg.speaker, ctx)) continue;
       const text = String(seg.text || '').trim();
       if (text.length < 8) continue; // "what?" is not a question worth waking a model for
       if (text.includes('?') || QUESTION.test(text)) return { why: `question from ${seg.speaker || 'someone'}`, segment: seg };
