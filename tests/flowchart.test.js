@@ -73,3 +73,20 @@ test('chained edges become separate connections, and arrows inside labels are no
   assert.equal(g2.edges.length, 1);
   assert.equal(g2.nodes.get('A').label, 'build --> ship');
 });
+
+test('a very wide top-down tree is auto-flipped to LR so labels stay legible', () => {
+  // One root with many leaves: authored TB this is a ~3000px strip; LR stacks the wide rank.
+  let src = 'flowchart TB\n  ROOT["root"]\n';
+  for (let i = 0; i < 24; i++) src += `  ROOT --> N${i}["leaf number ${i}"]\n`;
+  const dims = (s) => ({ w: +s.match(/width="(\d+)"/)[1], h: +s.match(/height="(\d+)"/)[1] });
+  const asAuthored = dims(renderFlowchartSvg(src, { autoFlip: false }));
+  const flipped = dims(renderFlowchartSvg(src));
+  assert.ok(asAuthored.w / asAuthored.h > 2.2, 'the authored layout really is extremely wide');
+  assert.ok(flipped.h > flipped.w, 'the rendered one is taller than wide — readable at fit-width');
+});
+
+test('a normal-shaped chart is left in the direction the author asked for', () => {
+  const src = 'flowchart TB\n A["a"] --> B["b"]\n A --> C["c"]';
+  const d = renderFlowchartSvg(src).match(/width="(\d+)" height="(\d+)"/);
+  assert.ok(+d[2] > +d[1] * 0.4, 'still a top-down shape, not flipped');
+});
