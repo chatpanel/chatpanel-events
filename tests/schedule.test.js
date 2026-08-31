@@ -4,7 +4,7 @@ import {
   nextFireAt, occurrencesBetween, validateSchedule, dueJobs, nextWakeAt, occurrenceKey,
   defineJob, defineTrigger, createTriggerRegistry, jobsForEvent, BUILTIN_TRIGGERS,
   timerTrigger, phraseTrigger, topicTrigger, questionTrigger, personJoinedTrigger,
-  meetingStartedTrigger, voiceCommandTrigger, ScheduleError, MISSED_POLICIES,
+  meetingStartedTrigger, voiceCommandTrigger, ScheduleError, MISSED_POLICIES, saidIn,
 } from '../schedule.js';
 
 // Monday 2026-06-01, 10:00 local. Expectations are built with the same local constructor,
@@ -145,6 +145,30 @@ test('a phrase said by anyone can start a job the user already created', () => {
   assert.deepEqual(jobsForEvent(jobs, delta([{ t: 1, speaker: 'x', text: 'nothing relevant' }]), { registry }), []);
   assert.deepEqual(jobsForEvent([evJob(phraseTrigger.id, { any: [] })], delta([{ t: 1, speaker: 'x', text: 'anything' }]), { registry }), [],
     'a phrase trigger with no phrase must not fire on every word');
+});
+
+test('a phrase matches WHOLE WORDS — the bug where every utterance fired', () => {
+  // Reported from a live meeting: an "Interview" job with a phrase trigger ran on every
+  // line. `includes` is why — a short phrase is inside most sentences, and from the user's
+  // chair that is indistinguishable from a trigger that ignores its phrase entirely.
+  const jobs = [evJob(phraseTrigger.id, { any: ['int'] })];
+  assert.deepEqual(jobsForEvent(jobs, delta([{ t: 1, speaker: 'x', text: 'lets start the interview now' }]), { registry }), [],
+    '"int" must not fire on "interview"');
+  assert.equal(jobsForEvent([evJob(phraseTrigger.id, { any: ['interview'] })],
+    delta([{ t: 1, speaker: 'x', text: 'lets start the interview now' }]), { registry }).length, 1);
+
+  // Real speech around the phrase still matches: punctuation, casing and neighbours.
+  for (const line of ['That is an ACTION ITEM.', 'action item: ship it', 'so, action item — mine']) {
+    assert.equal(jobsForEvent([evJob(phraseTrigger.id, { any: ['action item'] })], delta([{ t: 1, speaker: 'x', text: line }]), { registry }).length, 1, line);
+  }
+  assert.deepEqual(jobsForEvent([evJob(phraseTrigger.id, { any: ['action item'] })],
+    delta([{ t: 1, speaker: 'x', text: 'no actionable items here' }]), { registry }), []);
+
+  // A phrase too short to be a phrase is refused rather than matching everything.
+  assert.deepEqual(jobsForEvent([evJob(phraseTrigger.id, { any: ['a', 'in'] })], delta([{ t: 1, speaker: 'x', text: 'anything at all' }]), { registry }), []);
+  assert.equal(saidIn('the standup is at nine', 'standup'), true);
+  assert.equal(saidIn('the standup is at nine', 'stand'), false);
+  assert.equal(saidIn('shipping v2.0 today', 'v2.0'), true, 'a phrase with regex characters is matched literally');
 });
 
 test('a speaker filter is honoured, so "when someone else says X" is expressible', () => {
