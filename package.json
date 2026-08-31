@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
@@ -41,7 +41,9 @@
     "./upcast.js": "./upcast.js",
     "./observability.js": "./observability.js",
     "./flowchart.js": "./flowchart.js",
-    "./rrf.js": "./rrf.js"
+    "./rrf.js": "./rrf.js",
+    "./view.js": "./view.js",
+    "./widget.js": "./widget.js"
   },
   "files": [
     "LICENSE",
@@ -82,7 +84,9 @@
     "tool-groups.js",
     "tool-need.js",
     "trajectory.js",
-    "upcast.js"
+    "upcast.js",
+    "view.js",
+    "widget.js"
   ],
   "scripts": {
     "test": "node --test tests/*.test.js"
