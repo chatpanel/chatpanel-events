@@ -4,7 +4,7 @@ import {
   DEFAULT_WAKE, compileWake, findWakeCommand, parseCommand, parseDuration, parseClock,
   parseWhen, parseNumberWords, normalizeSpeech, editDistance, defineVoiceIntent,
   createVoiceIntentRegistry, defaultVoiceIntents, commandsFromSegments, timerIntent,
-  reminderIntent, noteIntent, monitorIntent, VoiceIntentError, MAX_COMMANDS_PER_DELTA,
+  reminderIntent, noteIntent, monitorIntent, scheduleIntent, VoiceIntentError, MAX_COMMANDS_PER_DELTA,
 } from '../voice-intents.js';
 
 // A fixed local moment: Monday 2026-06-01, 10:00 local. Every expectation below is built
@@ -182,6 +182,24 @@ test('"remind me" with nothing to remember is not a command', () => {
   assert.equal(r.needsModel, true);
 });
 
+test('scheduling a skill by voice — the daily brief', () => {
+  const r = defaultVoiceIntents().parse('every weekday at 8am run my daily brief', { now: MON_10AM });
+  assert.equal(r.intent, 'voice:schedule');
+  assert.equal(r.args.target, 'daily brief', 'the host resolves this against the skills the user has');
+  assert.deepEqual(r.args.recurrence, { kind: 'daily', hour: 8, minute: 0, weekdaysOnly: true });
+  assert.equal(r.classUsed, 'C', 'it will start a model turn every morning — say so');
+
+  const once = defaultVoiceIntents().parse('tomorrow at 9 run the release checklist', { now: MON_10AM });
+  assert.equal(once.args.recurrence, null);
+  assert.equal(once.args.at, local(1, 9));
+  assert.equal(once.args.target, 'release checklist');
+
+  // No time is not a schedule — "run the checklist" is a chat message, not a job.
+  const bare = defaultVoiceIntents().parse('run the release checklist', { now: MON_10AM });
+  assert.equal(bare.intent, null);
+  assert.equal(bare.needsModel, true);
+});
+
 test('notes and monitors', () => {
   const reg = defaultVoiceIntents();
   assert.deepEqual(reg.parse('note that we agreed to ship on Friday').args, { text: 'we agreed to ship on Friday' });
@@ -263,4 +281,35 @@ test('already-seen transcript is skipped and a burst is capped', () => {
 test('the common case — a meeting nobody is talking to ChatPanel in — costs nothing', () => {
   const ordinary = Array.from({ length: 200 }, (_, i) => ({ t: i, speaker: 'Alex Rivera', text: 'we should ship the migration on friday and tell the team' }));
   assert.deepEqual(commandsFromSegments(ordinary, { isSelf: () => true, now: MON_10AM }), []);
+});
+
+test('ordinary meeting talk does not set timers', () => {
+  const wake = compileWake(DEFAULT_WAKE);
+  const fire = (text, now = 1e6) => commandsFromSegments([{ t: 1000, text, speaker: 'You' }], { meetingId: 'm', now, wake });
+
+  // Reported from a real call: a meeting ABOUT ChatPanel kept creating timers. parseCommand
+  // returns a shape for anything carrying the wake word and a time-ish phrase, intent or not,
+  // so plain conversation came back as a command with intent:null and was acted on.
+  assert.equal(fire('we should talk about the chat panel roadmap next week').length, 0,
+    'a sentence with no request must not fire');
+  assert.equal(fire('Okay, so we are meeting today to talk about chat panel.').length, 0);
+  // A real request still works.
+  assert.equal(fire('hey chatpanel set a timer for 10 seconds')[0]?.intent, 'voice:timer');
+});
+
+test('one spoken request keeps ONE key while the caption grows', () => {
+  const wake = compileWake(DEFAULT_WAKE);
+  // A live caption is rescanned as the sentence extends — deliberately, so a half-heard
+  // command gets a second chance. The key must therefore not move, or each rescan looks like
+  // a new request. It used to contain `at` (now + the spoken duration), which changed on
+  // every scan and produced a new timer per caption update, faster than they could be deleted.
+  const keyAt = (now, text) => commandsFromSegments([{ t: 1000, text, speaker: 'You' }],
+    { meetingId: 'm', now, wake })[0]?.key;
+  const a = keyAt(100000, 'hey chatpanel set a timer for 10 seconds');
+  const b = keyAt(103000, 'hey chatpanel set a timer for 10 seconds and then');
+  const c = keyAt(109000, 'hey chatpanel set a timer for 10 seconds and then we moved on');
+  assert.ok(a, 'the request is recognised');
+  assert.equal(a, b, 'the key survives the caption growing');
+  assert.equal(b, c, 'and keeps surviving it');
+  assert.ok(!/\d{6,}/.test(a), 'no absolute timestamp is baked into the key');
 });
