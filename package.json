@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
