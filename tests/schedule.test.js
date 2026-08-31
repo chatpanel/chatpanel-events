@@ -171,13 +171,17 @@ test('a question is detected with or without the punctuation', () => {
   assert.equal(jobsForEvent(jobs, delta([{ t: 1, speaker: 'Jordan Blake', text: 'we ship on friday' }]), { registry, ctx: { isSelf } }).length, 0);
   assert.equal(jobsForEvent(jobs, delta([{ t: 1, speaker: 'Jordan Blake', text: 'what?' }]), { registry, ctx: { isSelf } }).length, 0,
     'a two-word "what?" is not worth waking a model for');
-  // ANYONE by default, including you: the first thing someone does is test it alone in a
-  // call, ask a question themselves, and watch nothing happen.
+  // WHOSE questions, by default, is a product decision that has been changed more than once
+  // (see the comment on the trigger). What must hold either way is that the OTHER answers are
+  // reachable — the job form has a speaker dropdown — because a default nobody can find is a
+  // trap regardless of which one it is. This asserts the current default and both alternatives.
   assert.equal(jobsForEvent(jobs, delta([{ t: 1, speaker: 'Alex Rivera', text: 'how are we handling the rollback' }]), { registry, ctx: { isSelf } }).length, 1,
     'your own question counts by default');
-  const others = [evJob(questionTrigger.id, { speaker: 'others' })];
-  assert.equal(jobsForEvent(others, delta([{ t: 1, speaker: 'Alex Rivera', text: 'how are we handling the rollback' }]), { registry, ctx: { isSelf } }).length, 0,
-    'and "only what other people ask" is still expressible');
+  const only = (speaker) => [evJob(questionTrigger.id, { speaker })];
+  assert.equal(jobsForEvent(only('others'), delta([{ t: 1, speaker: 'Alex Rivera', text: 'how are we handling the rollback' }]), { registry, ctx: { isSelf } }).length, 0,
+    '"only what other people ask" must be expressible');
+  assert.equal(jobsForEvent(only('me'), delta([{ t: 1, speaker: 'Jordan Blake', text: 'how are we handling the rollback' }]), { registry, ctx: { isSelf } }).length, 0,
+    'and so must "only what I ask"');
 });
 
 test('joining, starting, and a spoken command', () => {
