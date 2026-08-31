@@ -303,7 +303,10 @@ test('one spoken request keeps ONE key while the caption grows', () => {
   // command gets a second chance. The key must therefore not move, or each rescan looks like
   // a new request. It used to contain `at` (now + the spoken duration), which changed on
   // every scan and produced a new timer per caption update, faster than they could be deleted.
-  const keyAt = (now, text) => commandsFromSegments([{ t: 1000, text, speaker: 'You' }],
+  // Capture BUMPS seg.t every time a live caption grows (the delta filter needs that), so the
+  // key must come from `sid`, which is assigned once per utterance. Keying on t is what turned
+  // one "set a timer for 30 seconds" into a screenful of timers.
+  const keyAt = (now, text) => commandsFromSegments([{ sid: 's:7', t: now, text, speaker: 'You' }],
     { meetingId: 'm', now, wake })[0]?.key;
   const a = keyAt(100000, 'hey chatpanel set a timer for 10 seconds');
   const b = keyAt(103000, 'hey chatpanel set a timer for 10 seconds and then');
