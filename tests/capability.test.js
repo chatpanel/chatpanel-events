@@ -40,7 +40,7 @@ test('a non-pure invocation is refused without an idempotency key', () => {
 });
 
 test('every actor kind uses the identical call shape — turn-independence', () => {
-  for (const kind of ['user', 'rule', 'schedule', 'model', 'agent']) {
+  for (const kind of ['user', 'rule', 'schedule', 'model', 'agent', 'channel']) {
     assert.ok(validateInvocation(
       { capability: 'page.actions', actor: { kind, id: 'a' }, scope: { kind: 'tab', id: '1' }, causes: [], idempotencyKey: 'k' },
       pageActions,

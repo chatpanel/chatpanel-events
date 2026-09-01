@@ -28,7 +28,12 @@ export class ScheduleError extends Error {
 }
 
 export const SCHEDULE_KINDS = Object.freeze(['once', 'interval', 'daily', 'weekly']);
-export const TRIGGER_KINDS = Object.freeze(['timer', 'meeting', 'voice', 'data']);
+// 'channel' is the plug-in point for external messaging surfaces (Telegram/WhatsApp). A
+// message arriving in a paired chat is an event like any other, so it can START a job the user
+// already created and approved — "when I text the bot, run my daily brief" — and can do nothing
+// else, exactly like a phrase spoken in a meeting. The trigger definition itself lives in the
+// chatpanel-channels package; this enum is what lets it declare kind:'channel'.
+export const TRIGGER_KINDS = Object.freeze(['timer', 'meeting', 'voice', 'data', 'channel']);
 /** What a job does when it fires. `skill` is the headline: the instruction IS a skill. */
 export const JOB_ACTIONS = Object.freeze(['skill', 'prompt', 'monitor', 'notify']);
 /** What to do about occurrences that passed while nothing was running. */
