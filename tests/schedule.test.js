@@ -4,6 +4,7 @@ import {
   nextFireAt, occurrencesBetween, validateSchedule, dueJobs, nextWakeAt, occurrenceKey,
   defineJob, defineTrigger, createTriggerRegistry, jobsForEvent, BUILTIN_TRIGGERS,
   timerTrigger, phraseTrigger, topicTrigger, questionTrigger, personJoinedTrigger,
+  clipText, matchSummary,
   meetingStartedTrigger, voiceCommandTrigger, ScheduleError, MISSED_POLICIES, saidIn,
   utteranceLooksComplete, coalesceMatches, matchTexts,
   TEXT_DELTA, TRIGGER_SOURCES, eventSource, sourceAllowed,
@@ -208,6 +209,57 @@ test('a question is detected with or without the punctuation', () => {
     '"only what other people ask" must be expressible');
   assert.equal(jobsForEvent(only('me'), delta([{ t: 1, speaker: 'Jordan Blake', text: 'how are we handling the rollback' }]), { registry, ctx: { isSelf } }).length, 0,
     'and so must "only what I ask"');
+});
+
+test('a matched question carries the question, not just the asker', () => {
+  // The row in the thread, the toast and the run log are all this string. "question from
+  // Jordan Blake" describes an event nobody can identify afterwards — least of all the person
+  // reading the answer that landed underneath it.
+  const [hit] = jobsForEvent([evJob(questionTrigger.id, {})],
+    delta([{ t: 1, speaker: 'Jordan Blake', text: 'how are we handling the rollback' }]),
+    { registry, ctx: { isSelf } });
+  assert.match(hit.match.why, /question from Jordan Blake/);
+  assert.match(hit.match.why, /how are we handling the rollback/);
+});
+
+test('a very long question is clipped at a word, never mid-word', () => {
+  const long = `why does the ${'very '.repeat(40)}long pipeline stall`;
+  const [hit] = jobsForEvent([evJob(questionTrigger.id, {})],
+    delta([{ t: 1, speaker: 'Jordan Blake', text: long }]), { registry, ctx: { isSelf } });
+  assert.ok(hit.match.why.length < 160, 'a reason is a line, not a transcript');
+  assert.match(hit.match.why, /…”$/);
+  // The visible cut is a PREFIX of what was said that ends where a word ends — the failure
+  // this exists to stop is "…with the informati".
+  const body = hit.match.why.match(/“(.*)…”$/)[1];
+  assert.ok(long.startsWith(body), 'the clip is a prefix of what was actually said');
+  assert.equal(long[body.length], ' ', 'and it stops on a word boundary');
+});
+
+test('clipText shortens where a reader would, and leaves short text alone', () => {
+  assert.equal(clipText('already short', 40), 'already short');
+  assert.equal(clipText('answer the question the best way possible with the information', 40),
+    'answer the question the best way…');
+  // No boundary to back up to: an unbroken token is cut rather than erased.
+  assert.equal(clipText('a'.repeat(30), 10), `${'a'.repeat(10)}…`);
+  assert.equal(clipText('   spaced   out   text  ', 40), 'spaced out text');
+});
+
+test('matchSummary names what fired, and a burst names all of them', () => {
+  const one = matchSummary([q(1, 'did the staging pull work', 'Alex Rivera')], { noun: 'questions' });
+  assert.equal(one, 'question', 'a single match keeps the reason its own trigger wrote');
+
+  const three = matchSummary([
+    q(1, 'did the staging pull work', 'Alex Rivera'),
+    q(2, 'which credential was used', 'Alex Rivera'),
+    q(3, 'is the bucket shared', 'Alex Rivera'),
+  ], { noun: 'questions' });
+  assert.match(three, /^3 questions: /);
+  for (const t of ['staging pull', 'credential', 'bucket']) assert.ok(three.includes(t), `${t} should be named`);
+
+  // Beyond what fits, the count of the rest is kept rather than silently dropped.
+  const many = matchSummary(Array.from({ length: 6 }, (_, i) => q(i + 1, `question number ${i}`)), { noun: 'questions' });
+  assert.match(many, /\+3 more$/);
+  assert.equal(matchSummary([], { noun: 'questions' }), '');
 });
 
 test('joining, starting, and a spoken command', () => {
