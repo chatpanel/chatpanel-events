@@ -5,6 +5,7 @@ import {
   defineJob, defineTrigger, createTriggerRegistry, jobsForEvent, BUILTIN_TRIGGERS,
   timerTrigger, phraseTrigger, topicTrigger, questionTrigger, personJoinedTrigger,
   meetingStartedTrigger, voiceCommandTrigger, ScheduleError, MISSED_POLICIES, saidIn,
+  utteranceLooksComplete,
 } from '../schedule.js';
 
 // Monday 2026-06-01, 10:00 local. Expectations are built with the same local constructor,
@@ -232,4 +233,43 @@ test('a trigger whose matcher throws does not fire and does not take the bus dow
 test('an event trigger only sees the event types it watches', () => {
   const jobs = [evJob(phraseTrigger.id, { any: ['x'] })];
   assert.deepEqual(jobsForEvent(jobs, { type: 'meeting.started' }, { registry }), []);
+});
+
+// ---------------------------------------------------------------------------
+// utteranceLooksComplete — is this caption a finished thought, or half of one?
+// ---------------------------------------------------------------------------
+test('utteranceLooksComplete: a line ending on a connective is not finished', () => {
+  // The reported case: the trigger matched, the job ran, and the REASON had not been said.
+  assert.equal(utteranceLooksComplete('the product is just amazing because'), false);
+  assert.equal(utteranceLooksComplete('I think we need to'), false);
+  assert.equal(utteranceLooksComplete('can you look at the'), false);
+  assert.equal(utteranceLooksComplete('the renewal is'), false);
+});
+
+test('utteranceLooksComplete: punctuation ends it, inside quotes too', () => {
+  assert.equal(utteranceLooksComplete('They said the product is amazing.'), true);
+  assert.equal(utteranceLooksComplete('it was great!'), true);
+  assert.equal(utteranceLooksComplete('“ship it.”'), true);
+  assert.equal(utteranceLooksComplete('is that right?'), true);
+});
+
+test('utteranceLooksComplete: trailing comma, colon or dash means more is coming', () => {
+  assert.equal(utteranceLooksComplete('pricing is fine —'), false);
+  assert.equal(utteranceLooksComplete('three things:'), false);
+  assert.equal(utteranceLooksComplete('well, and'), false);
+});
+
+test('utteranceLooksComplete: unpunctuated speech is complete unless it dangles', () => {
+  // Speech-to-text often emits no punctuation at all. Requiring a full stop would make every
+  // job wait every time, which is the opposite of the complaint.
+  assert.equal(utteranceLooksComplete('we should ship it'), true);
+  assert.equal(utteranceLooksComplete('we shipped it yesterday'), true);
+  assert.equal(utteranceLooksComplete('action item for Alex'), true);
+  assert.equal(utteranceLooksComplete('take both'), true);
+});
+
+test('utteranceLooksComplete: nothing at all is not a finished thought', () => {
+  assert.equal(utteranceLooksComplete(''), false);
+  assert.equal(utteranceLooksComplete('   '), false);
+  assert.equal(utteranceLooksComplete(null), false);
 });
