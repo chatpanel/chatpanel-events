@@ -5,7 +5,8 @@ import {
   defineJob, defineTrigger, createTriggerRegistry, jobsForEvent, BUILTIN_TRIGGERS,
   timerTrigger, phraseTrigger, topicTrigger, questionTrigger, personJoinedTrigger,
   meetingStartedTrigger, voiceCommandTrigger, ScheduleError, MISSED_POLICIES, saidIn,
-  utteranceLooksComplete,
+  utteranceLooksComplete, coalesceMatches, matchTexts,
+  TEXT_DELTA, TRIGGER_SOURCES, eventSource, sourceAllowed,
 } from '../schedule.js';
 
 // Monday 2026-06-01, 10:00 local. Expectations are built with the same local constructor,
@@ -272,4 +273,92 @@ test('utteranceLooksComplete: nothing at all is not a finished thought', () => {
   assert.equal(utteranceLooksComplete(''), false);
   assert.equal(utteranceLooksComplete('   '), false);
   assert.equal(utteranceLooksComplete(null), false);
+});
+
+// ---------------------------------------------------------------------------
+// coalesceMatches — a burst of questions is a batch, not one answer and 13 drops
+// ---------------------------------------------------------------------------
+const q = (t, text, speaker = 'You') => ({ segment: { t, text, speaker }, why: 'question' });
+
+test('coalesceMatches: a caption that grew is one ask, and the finished text wins', () => {
+  const got = coalesceMatches([q(1, 'why is the sky'), q(1, 'why is the sky blue'), q(2, 'what is cooldown')]);
+  assert.equal(got.length, 2);
+  assert.equal(got[0].segment.text, 'why is the sky blue');
+});
+
+test('coalesceMatches: without timestamps, prefix growth still collapses', () => {
+  const grown = [{ segment: { text: 'what is happening', speaker: 'You' } },
+    { segment: { text: 'what is happening here', speaker: 'You' } }];
+  assert.equal(coalesceMatches(grown).length, 1);
+});
+
+test('coalesceMatches: a timestamp is identity, so prefix matching cannot over-merge', () => {
+  // "question number 1" IS a prefix of "question number 10". Twelve distinct asks must stay
+  // distinct — an OR between the two rules silently merged them.
+  const many = Array.from({ length: 12 }, (_, i) => q(i + 10, `question number ${i}`));
+  assert.equal(coalesceMatches(many, { max: 20 }).length, 12);
+});
+
+test('coalesceMatches: the same words from two speakers are two asks', () => {
+  assert.equal(coalesceMatches([q(3, 'is that right', 'Alex'), q(4, 'is that right', 'Jordan')]).length, 2);
+});
+
+test('coalesceMatches: over the cap the OLDEST go — the meeting has moved past them', () => {
+  const many = Array.from({ length: 12 }, (_, i) => q(i + 10, `q${i}`));
+  const kept = coalesceMatches(many, { max: 8 });
+  assert.equal(kept.length, 8);
+  assert.equal(kept[0].segment.text, 'q4');
+  assert.equal(kept[7].segment.text, 'q11');
+});
+
+test('matchTexts: the lines a batch is asking about, deduped, in order', () => {
+  assert.deepEqual(matchTexts([q(1, 'why is the sky'), q(1, 'why is the sky blue'), q(2, 'and cooldown?')]),
+    ['why is the sky blue', 'and cooldown?']);
+  assert.deepEqual(matchTexts([]), []);
+});
+
+// ---------------------------------------------------------------------------
+// Sources — the same trigger, wherever the text is written
+// ---------------------------------------------------------------------------
+const textReg = createTriggerRegistry(BUILTIN_TRIGGERS);
+const said = [{ t: 1, speaker: 'You', text: 'why is the sky blue?' }];
+const asks = (params, event) => jobsForEvent(
+  [{ id: 'j', name: 'n', enabled: true, trigger: questionTrigger.id, params, action: { kind: 'prompt', text: 'x' } }],
+  event, { registry: textReg },
+).length;
+const inMeeting = { type: 'meeting.transcript.delta', meetingId: 'm', segments: said };
+const inNote = { type: TEXT_DELTA, source: 'note', sourceId: 'n1', segments: said };
+const inChat = { type: TEXT_DELTA, source: 'chat', sourceId: 'c1', segments: said };
+
+test('a job stored before sources existed still fires on meetings, and ONLY meetings', () => {
+  // The compatibility guarantee. Every such job was created against a form that said "in a
+  // call"; widening it silently would run models over notes its author never pointed it at.
+  assert.equal(asks({}, inMeeting), 1);
+  assert.equal(asks({}, inNote), 0);
+  assert.equal(asks({}, inChat), 0);
+});
+
+test('a job scoped to a surface fires there and nowhere else', () => {
+  assert.equal(asks({ sources: ['note'] }, inNote), 1);
+  assert.equal(asks({ sources: ['note'] }, inMeeting), 0);
+  assert.equal(asks({ sources: ['chat'] }, inChat), 1);
+  assert.equal(asks({ sources: ['meeting', 'note', 'chat'] }, inChat), 1);
+});
+
+test('an unknown or missing source matches nothing — never everything', () => {
+  assert.equal(asks({ sources: ['note'] }, { type: TEXT_DELTA, segments: said }), 0);
+  assert.equal(asks({ sources: ['nope'] }, inNote), 0, 'a junk scope falls back to meeting-only');
+  assert.equal(eventSource({ type: TEXT_DELTA, source: 'wat' }), '');
+  assert.equal(eventSource(inMeeting), 'meeting', 'a meeting delta says so by its type alone');
+});
+
+test('phrase and topic triggers are gated the same way', () => {
+  const one = (trigger, params, event) => jobsForEvent(
+    [{ id: 'j', name: 'n', enabled: true, trigger, params, action: { kind: 'prompt', text: 'x' } }],
+    event, { registry: textReg },
+  ).length;
+  const typed = { type: TEXT_DELTA, source: 'note', segments: [{ t: 1, speaker: 'You', text: 'this is an action item for pricing' }] };
+  assert.equal(one(phraseTrigger.id, { any: ['action item'] }, typed), 0, 'meeting-only by default');
+  assert.equal(one(phraseTrigger.id, { any: ['action item'], sources: ['note'] }, typed), 1);
+  assert.equal(one(topicTrigger.id, { terms: ['pricing'], sources: ['note'] }, typed), 1);
 });
