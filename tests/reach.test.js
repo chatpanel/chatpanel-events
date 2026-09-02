@@ -18,3 +18,12 @@ test('an unknown tier ranks lowest, so a typo can never widen reach', () => {
   assert.equal(reachSatisfies('any', 'trusted'), true);
   assert.equal(reachSatisfies('device', 'device'), true);
 });
+
+test('the package entry point actually parses and exports one REACH', async () => {
+  // index.js re-exports ~40 modules and nothing imported it: a duplicate export (REACH from
+  // both reach.js and router.js) is a hard ESM parse error, and it was caught two repos
+  // downstream by the extension's parse test rather than here.
+  const pkg = await import('../index.js');
+  assert.equal(pkg.REACH, REACH);
+  assert.equal(typeof pkg.reachSatisfies, 'function');
+});
