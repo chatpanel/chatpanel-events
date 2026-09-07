@@ -411,3 +411,36 @@ test('two requests in one breath stay two', () => {
   const ready = seg(UTTERANCE_SETTLE_MS);
   assert.deepEqual(ready.map((c) => c.intent).sort(), ['voice:note', 'voice:timer']);
 });
+
+test('a sentence ABOUT the product is not a sentence TO it', () => {
+  const wake = compileWake(DEFAULT_WAKE);
+  const addressed = (t) => findWakeCommand(t, wake)?.addressed;
+
+  // Verbatim from a capture. The transcriber cut one sentence — "…testing to see what chat
+  // panel actually helps us to monitor" — in half and punctuated the cut, and the half-stop
+  // made the second half read as a fresh address. It answered in the meeting chat.
+  assert.equal(
+    addressed('Okay, so this is another round of testing to see what. Chat panel actually helps us to. Uh, monitor.'),
+    false,
+    'an invented full stop does not create an address',
+  );
+  // Same shape, without the punctuation trick: a name followed by its own verb is a subject.
+  assert.equal(addressed('I think chat panel is a great product'), false);
+  assert.equal(addressed('Chat panel helps a lot with meetings.'), false);
+  assert.equal(addressed('we should talk about the chat panel roadmap next week'), false);
+
+  // …and every ordinary way of speaking TO it still counts, including the ones that open on
+  // the very auxiliaries a claim would use.
+  for (const t of [
+    'chatpanel, how is the weather?',
+    'hey chatpanel, take a note.',
+    'Okay, chat panel. Summarize this.',
+    'so I was thinking. ChatPanel, what did we decide?',
+    'hey chatpanel set a timer for 10 seconds',
+    'chatpanel can you set a timer for 5 minutes',
+    'ChatPanel, is it raining?',
+  ]) assert.equal(addressed(t), true, `"${t}" is an address`);
+
+  // A real sentence break still is one — the test is whether the words before it finished.
+  assert.equal(addressed('that lands on Friday. ChatPanel, note that down'), true);
+});
