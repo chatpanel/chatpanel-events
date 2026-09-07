@@ -5,6 +5,7 @@ import {
   parseWhen, parseNumberWords, normalizeSpeech, editDistance, defineVoiceIntent,
   createVoiceIntentRegistry, defaultVoiceIntents, commandsFromSegments, timerIntent,
   reminderIntent, noteIntent, monitorIntent, scheduleIntent, VoiceIntentError, MAX_COMMANDS_PER_DELTA,
+  commandLooksFinished, sameUtterance, createUtteranceGate, UTTERANCE_SETTLE_MS, UTTERANCE_DANGLING_MS,
 } from '../voice-intents.js';
 
 // A fixed local moment: Monday 2026-06-01, 10:00 local. Every expectation below is built
@@ -315,4 +316,98 @@ test('one spoken request keeps ONE key while the caption grows', () => {
   assert.equal(a, b, 'the key survives the caption growing');
   assert.equal(b, c, 'and keeps surviving it');
   assert.ok(!/\d{6,}/.test(a), 'no absolute timestamp is baked into the key');
+});
+
+// ── one utterance, one action ──────────────────────────────────────────────
+//
+// Every fragment below is verbatim from one capture of this feature being demonstrated. The
+// transcriber punctuated all four of them, and all four were sent to a model as requests
+// while the speaker was still saying the rest of the sentence.
+
+test('a full stop the transcriber invented is not a finished thought', () => {
+  assert.equal(commandLooksFinished('Take the question and ask the.'), false);
+  assert.equal(commandLooksFinished('set a timer for.'), false);
+  assert.equal(commandLooksFinished("Let's summarize the."), false);
+  assert.equal(commandLooksFinished('summarize the last 30 seconds, like, maybe.'), false);
+  // …and a real request still reads as one, punctuated or not.
+  assert.equal(commandLooksFinished('set a timer for 30 seconds'), true);
+  assert.equal(commandLooksFinished('how is the weather in Issaquah?'), true);
+  assert.equal(commandLooksFinished("let's summarize the notes so far."), true);
+  assert.equal(commandLooksFinished(''), false);
+});
+
+test('a growing caption is one utterance, however it is transcribed', () => {
+  assert.equal(sameUtterance('set a timer for', 'set a timer for 30 seconds'), true, 'it appends');
+  assert.equal(sameUtterance('how is the weather in seattle washington now',
+    'how is the weather in seattle washington'), true, 'and it revises');
+  assert.equal(sameUtterance('set a timer for 30 seconds', 'take notes on the pricing question'), false);
+  // A short opening is not evidence: half the commands ever spoken start "set a timer".
+  assert.equal(sameUtterance('set a timer', 'set an alarm'), false);
+});
+
+test('the timer that also sent a message — one utterance produces ONE command', () => {
+  // THE BUG, replayed. A single spoken "Okay ChatPanel, set a timer for 30 seconds" reached
+  // the client as three deliveries of a growing caption. Every one of them parsed, so the
+  // fragment went to a model as a question and the whole sentence set a timer: one thing
+  // said, two things done.
+  const wake = compileWake(DEFAULT_WAKE);
+  const gate = createUtteranceGate();
+  const at = (now, text) => commandsFromSegments([{ sid: 's:1', t: now, text, speaker: 'You' }],
+    { meetingId: 'm', now, wake, gate, isSelf: () => true });
+
+  assert.deepEqual(at(0, 'Okay chatpanel. set a timer for.'), [],
+    'a fragment the transcriber punctuated is not a request');
+  assert.deepEqual(at(4_000, 'Okay chatpanel. set a timer for 30.'), [], 'still being said');
+  const grown = at(8_000, 'Okay chatpanel. set a timer for 30 seconds.');
+  assert.deepEqual(grown, [], 'and not the instant it completes either — the words must settle');
+
+  const ready = at(8_000 + UTTERANCE_SETTLE_MS, 'Okay chatpanel. set a timer for 30 seconds.');
+  assert.equal(ready.length, 1, 'one utterance, one command');
+  assert.equal(ready[0].intent, 'voice:timer');
+  assert.equal(ready[0].args.ms, 30_000, 'and the duration they actually said');
+
+  // The caption keeps living — a monologue re-delivers it for minutes, and it keeps growing.
+  // None of that may act again.
+  assert.deepEqual(at(20_000, 'Okay chatpanel. set a timer for 30 seconds.'), []);
+  assert.deepEqual(at(30_000, 'Okay chatpanel. set a timer for 30 seconds. Okay, so I think that worked.'), [],
+    'the completed version of a request already acted on must not act again');
+});
+
+test('a request that ends mid-thought waits longer, but is never dropped', () => {
+  const wake = compileWake(DEFAULT_WAKE);
+  const gate = createUtteranceGate();
+  const at = (now, text) => commandsFromSegments([{ sid: 's:2', t: now, text, speaker: 'You' }],
+    { meetingId: 'm', now, wake, gate, isSelf: () => true });
+  // "Tell me what that is" ends on an auxiliary, exactly like "set a timer for" does. The tail
+  // test is a word list, not grammar, so it may only DELAY — a command that never runs is the
+  // worse failure of the two.
+  const text = 'Okay chatpanel, tell me what that is';
+  assert.deepEqual(at(0, text), []);
+  assert.deepEqual(at(UTTERANCE_SETTLE_MS + 1, text), [], 'the ordinary window is not enough for a dangling tail');
+  assert.equal(at(UTTERANCE_DANGLING_MS + 1, text).length, 1, 'but it does run');
+});
+
+test('the gate says when to come back, because silence produces no captions', () => {
+  const wake = compileWake(DEFAULT_WAKE);
+  const gate = createUtteranceGate();
+  commandsFromSegments([{ sid: 's:3', t: 0, text: 'Okay chatpanel, how is the weather in Issaquah?', speaker: 'You' }],
+    { meetingId: 'm', now: 0, wake, gate, isSelf: () => true });
+  assert.equal(gate.waiting, 1);
+  assert.equal(gate.nextDueIn(0), UTTERANCE_SETTLE_MS, 'the host schedules exactly this');
+  assert.deepEqual(gate.due(1_000), [], 'nothing before then');
+  const ready = gate.due(UTTERANCE_SETTLE_MS);
+  assert.equal(ready.length, 1, 'and the last thing said before someone stopped talking still happens');
+  assert.equal(ready[0].needsModel, true, 'no built-in intent fits a weather question — a model reads it');
+  assert.equal(gate.nextDueIn(UTTERANCE_SETTLE_MS), null, 'nothing left waiting');
+});
+
+test('two requests in one breath stay two', () => {
+  const wake = compileWake(DEFAULT_WAKE);
+  const gate = createUtteranceGate();
+  const text = 'Okay chatpanel, set a timer for 10 minutes. Okay chatpanel, note that we shipped the panel.';
+  const seg = (now) => commandsFromSegments([{ sid: 's:4', t: now, text, speaker: 'You' }],
+    { meetingId: 'm', now, wake, gate, isSelf: () => true });
+  seg(0);
+  const ready = seg(UTTERANCE_SETTLE_MS);
+  assert.deepEqual(ready.map((c) => c.intent).sort(), ['voice:note', 'voice:timer']);
 });
