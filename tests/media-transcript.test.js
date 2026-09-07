@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  INNERTUBE_ANDROID, innertubeApiKeyFromHtml, innertubePlayerRequest,
   parseYouTubeUrl, isYouTubeUrl, YOUTUBE_HOSTS,
   captionTracksFromPlayerResponse, videoMetaFromPlayerResponse,
   pickCaptionTrack, timedTextUrl, parseTimedText, groupSegments,
@@ -347,4 +348,49 @@ test('a translation is requested only when the chosen track is a different langu
     async fetchText(url) { asked.push(url); return JSON3; },
   });
   assert.match(asked[0], /tlang=en/, 'a ja-only video asked for en must ask for the translation');
+});
+
+// --------------------------------------------------------------------------
+// The InnerTube player request
+// --------------------------------------------------------------------------
+
+// THE CLIENT VERSION IS LOAD-BEARING AND INVISIBLE. Measured against live YouTube:
+// 20.10.38 returns caption tracks; 19.09.37 and 17.31.35 return a well-formed player
+// response with the `captions` block MISSING. So a stale version does not error — it reads
+// exactly like "this video has no subtitles", which is the worst failure this code can have.
+test('the ANDROID client is pinned to a version known to return caption tracks', () => {
+  assert.equal(INNERTUBE_ANDROID.clientName, 'ANDROID');
+  assert.match(INNERTUBE_ANDROID.clientVersion, /^\d+\.\d+\.\d+$/);
+  assert.ok(Object.isFrozen(INNERTUBE_ANDROID), 'a caller could otherwise mutate it for everyone');
+});
+
+test('the public InnerTube key is read out of a watch page, in both escapings', () => {
+  assert.equal(innertubeApiKeyFromHtml('x"INNERTUBE_API_KEY":"AIzaTESTKEY",y'), 'AIzaTESTKEY');
+  assert.equal(innertubeApiKeyFromHtml('a INNERTUBE_API_KEY\\":\\"AIzaESCAPED\\" b'), 'AIzaESCAPED');
+  assert.equal(innertubeApiKeyFromHtml('<html>nothing here</html>'), '');
+  assert.equal(innertubeApiKeyFromHtml(null), '');
+});
+
+test('the player request is returned as DATA, so each client performs it with its own network', () => {
+  const req = innertubePlayerRequest('dQw4w9WgXcQ', { apiKey: 'AIzaTESTKEY' });
+  assert.equal(req.method, 'POST');
+  assert.match(req.url, /^https:\/\/www\.youtube\.com\/youtubei\/v1\/player\?key=AIzaTESTKEY$/);
+  assert.deepEqual(JSON.parse(req.body), {
+    context: { client: { clientName: 'ANDROID', clientVersion: INNERTUBE_ANDROID.clientVersion } },
+    videoId: 'dQw4w9WgXcQ',
+  });
+  // The key is a URL parameter, so a weird one must not be able to add parameters of its own.
+  assert.match(innertubePlayerRequest('x', { apiKey: 'a&b=c' }).url, /key=a%26b%3Dc$/);
+  assert.equal(innertubePlayerRequest(''), null);
+});
+
+test('the caption tracks from a player response feed the same picker as any other', () => {
+  const player = { captions: { playerCaptionsTracklistRenderer: { captionTracks: [
+    { baseUrl: 'https://www.youtube.com/api/timedtext?v=1', languageCode: 'en', kind: 'asr' },
+  ] } } };
+  const tracks = captionTracksFromPlayerResponse(player);
+  assert.equal(tracks.length, 1);
+  assert.equal(tracks[0].generated, true, 'an asr track from the player endpoint is still marked generated');
+  // Ranked, not filtered: the only track wins even though nothing prefers it.
+  assert.equal(pickCaptionTrack(tracks, { languages: ['de'] })?.baseUrl, tracks[0].baseUrl);
 });
