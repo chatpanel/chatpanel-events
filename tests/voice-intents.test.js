@@ -6,6 +6,7 @@ import {
   createVoiceIntentRegistry, defaultVoiceIntents, commandsFromSegments, timerIntent,
   reminderIntent, noteIntent, monitorIntent, scheduleIntent, VoiceIntentError, MAX_COMMANDS_PER_DELTA,
   commandLooksFinished, sameUtterance, createUtteranceGate, UTTERANCE_SETTLE_MS, UTTERANCE_DANGLING_MS,
+  settleRefinement, REFINEMENT_SCHEMA, refinementPrompt,
 } from '../voice-intents.js';
 
 // A fixed local moment: Monday 2026-06-01, 10:00 local. Every expectation below is built
@@ -443,4 +444,64 @@ test('a sentence ABOUT the product is not a sentence TO it', () => {
 
   // A real sentence break still is one — the test is whether the words before it finished.
   assert.equal(addressed('that lands on Friday. ChatPanel, note that down'), true);
+});
+
+// ── the phrasings people actually speak ────────────────────────────────────
+//
+// Everything here is verbatim from one demo session. Each one missed, fell through to the
+// model, and got answered by something other than the feature that exists for it.
+
+test('"set a one minute timer" is ONE minute', () => {
+  // The article set the count to 1 outright and everything after it added, so the way most
+  // people say it came out at twice the length. Reported as "I asked for a 1-minute timer, it
+  // didn't work" — it worked, for two minutes, which looks identical to not working.
+  assert.equal(parseDuration('set a 1-minute timer').ms, 60_000);
+  assert.equal(parseDuration('set a one minute timer').ms, 60_000);
+  assert.equal(parseDuration('set a 30 second timer').ms, 30_000);
+  // …without breaking the article's real job.
+  assert.equal(parseDuration('set a timer for a minute').ms, 60_000);
+  assert.equal(parseDuration('a quarter of an hour').ms, 15 * 60_000);
+  assert.equal(parseDuration('two and a half minutes').ms, 150_000);
+  assert.equal(parseDuration('an hour and a half').ms, 90 * 60_000);
+});
+
+test('a timer whose head noun the caption cut off is still a timer', () => {
+  const reg = defaultVoiceIntents();
+  // "Okay ChatPanel, set a 1-minute timer" arrived as "set a one minute." — with no intent it
+  // went to the model, which ran `sleep 60` in a sandbox and promised a notification nothing
+  // could deliver.
+  assert.equal(reg.parse('set a one minute', { now: MON_10AM }).args.ms, 60_000);
+  assert.equal(reg.parse('set a 30 second', { now: MON_10AM }).args.ms, 30_000);
+  // …but only when the duration is ALL there is. Anything else and the noun still matters.
+  assert.equal(reg.parse('set a 5 minute meeting', { now: MON_10AM }).intent, null);
+  assert.equal(reg.parse('how is the weather in 10 minutes', { now: MON_10AM }).intent, null);
+});
+
+test('the noun forms of a monitor and a note', () => {
+  const reg = defaultVoiceIntents();
+  // Asked for in the very demo of the feature, and it matched nothing: every pattern began at
+  // the verb, so no card was ever created.
+  assert.equal(reg.parse('start a live monitor about the pricing question').intent, 'voice:monitor');
+  assert.equal(reg.parse('start monitoring who owns the migration').intent, 'voice:monitor');
+  assert.equal(reg.parse('set up a monitor for whether we agree a date').intent, 'voice:monitor');
+  // The plural, the definite article and "of" instead of "that" were all misses.
+  assert.equal(reg.parse('take the notes of whatever we spoke so far').intent, 'voice:note');
+  assert.equal(reg.parse('take notes on what we discussed').intent, 'voice:note');
+  assert.equal(reg.parse('write down that the budget is approved').intent, 'voice:note');
+  // The originals still work.
+  assert.equal(reg.parse('note that we agreed to ship on Friday').intent, 'voice:note');
+  assert.equal(reg.parse('keep an eye on the pricing question').intent, 'voice:monitor');
+});
+
+test('a spoken timer the grammar misses is still a job, not a chat message', () => {
+  // The model reads what the grammar could not, and a timer it recognises must come back as a
+  // TIMER: as a question it went to the chat, where an agent answered it by sleeping in its
+  // own sandbox and saying it would notify. It cannot — nothing connects that back to anyone.
+  const t = settleRefinement({ request: 'set a one minute timer', name: 'Timer', kind: 'timer' });
+  assert.equal(t.kind, 'timer');
+  assert.equal(t.ms, 60_000, 'the duration is resolved here, by the parser that owns durations');
+  // A timer with no duration in it is a question about time, not a job with no time.
+  assert.equal(settleRefinement({ request: 'what time is the standup', kind: 'timer' }).kind, 'question');
+  assert.ok(REFINEMENT_SCHEMA.fields.kind.values.includes('timer'));
+  assert.match(refinementPrompt('x'), /timer/, 'and the model is told the kind exists');
 });
