@@ -6,7 +6,7 @@ import {
   createVoiceIntentRegistry, defaultVoiceIntents, commandsFromSegments, timerIntent,
   reminderIntent, noteIntent, monitorIntent, scheduleIntent, VoiceIntentError, MAX_COMMANDS_PER_DELTA,
   commandLooksFinished, sameUtterance, createUtteranceGate, UTTERANCE_SETTLE_MS, UTTERANCE_DANGLING_MS,
-  settleRefinement, REFINEMENT_SCHEMA, refinementPrompt,
+  settleRefinement, REFINEMENT_SCHEMA, refinementPrompt, spokenNamesHost,
 } from '../voice-intents.js';
 
 // A fixed local moment: Monday 2026-06-01, 10:00 local. Every expectation below is built
@@ -504,4 +504,35 @@ test('a spoken timer the grammar misses is still a job, not a chat message', () 
   assert.equal(settleRefinement({ request: 'what time is the standup', kind: 'timer' }).kind, 'question');
   assert.ok(REFINEMENT_SCHEMA.fields.kind.values.includes('timer'));
   assert.match(refinementPrompt('x'), /timer/, 'and the model is told the kind exists');
+});
+
+test('a spoken request to DO something has a kind of its own', () => {
+  // Without one there is nowhere to put a browser command. "Go to google.com and search for
+  // chat panel" is not something they want to KNOW, so it does not read as a question — and
+  // the only bucket left for a narrated demo is "none", which the host drops without a word.
+  // It was spoken four ways in one meeting and did nothing every time.
+  assert.ok(REFINEMENT_SCHEMA.fields.kind.values.includes('action'));
+  assert.match(refinementPrompt('x'), /action .*— DO something in the browser/);
+  const a = settleRefinement({ request: 'go to google.com and search for chat panel', name: 'Search Google', kind: 'action' });
+  assert.equal(a.kind, 'action', 'and it survives settling — an unknown kind becomes a question');
+});
+
+test('only a host the user said out loud authorises going there', () => {
+  // A URL the MODEL chose is attacker-influenced by construction (it has been reading page
+  // text and meeting captions), so it gets a dialog. A URL whose host the USER said is already
+  // reviewed — and the dialog, in a side panel during a call, is what nobody looks at.
+  const spoken = 'go to google.com and search for chat panel';
+  assert.equal(spokenNamesHost('https://www.google.com/search?q=chat+panel', spoken), true);
+  assert.equal(spokenNamesHost('https://www.google.com/search?q=x', 'go to google and search for x'), true,
+    'the bare name counts for a two-label host — people say "google", not "google.com"');
+  assert.equal(spokenNamesHost('https://evil.test/?q=secrets', spoken), false,
+    'a destination they never named is not authorised by the ones they did');
+  assert.equal(spokenNamesHost('https://docs.evil.test/', 'open docs for me'), false,
+    'and a bare label never reaches a deeper host — "docs" is not docs.evil.test');
+  assert.equal(spokenNamesHost('https://mail.google.com/', 'open google'), false,
+    'not even a subdomain of a host they did name');
+  assert.equal(spokenNamesHost('https://mail.google.com/', 'open mail.google.com'), true,
+    'unless they said the whole thing');
+  assert.equal(spokenNamesHost('not a url', 'open google'), false);
+  assert.equal(spokenNamesHost('https://google.com/', ''), false, 'nothing spoken authorises nothing');
 });
