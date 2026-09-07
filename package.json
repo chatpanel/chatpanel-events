@@ -1,7 +1,7 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.25.0",
-  "description": "The canonical ChatPanel event-log and capability contracts — typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
+  "version": "0.26.0",
+  "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -50,7 +50,9 @@
     "./view.js": "./view.js",
     "./widget.js": "./widget.js",
     "./tags.js": "./tags.js",
-    "./titles.js": "./titles.js"
+    "./titles.js": "./titles.js",
+    "./structured.js": "./structured.js",
+    "./extraction.js": "./extraction.js"
   },
   "files": [
     "LICENSE",
@@ -59,6 +61,7 @@
     "capability.js",
     "citations.js",
     "event.js",
+    "extraction.js",
     "flowchart.js",
     "harness.js",
     "index.js",
@@ -90,6 +93,7 @@
     "sources-retrieval.js",
     "sources.js",
     "store.js",
+    "structured.js",
     "tags.js",
     "text-search.js",
     "titles.js",
