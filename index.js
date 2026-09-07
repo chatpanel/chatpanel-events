@@ -35,6 +35,18 @@ export { validateView, validateViewInvocation, viewResult } from './view.js';
 export { validateWidget, validateWidgetMessage, effectiveGrants, widgetIcon, WIDGET_SURFACES } from './widget.js';
 export { fuseRRF, planQueries, multiSearch } from './rrf.js';
 export {
+  PDF_MAX_CHARS, linesFromItems, orderLines, paragraphsFromLines,
+  pageTextFromItems, looksScanned, buildPdfDocument,
+} from './pdf-layout.js';
+export {
+  YOUTUBE_HOSTS, TRANSCRIPT_MAX_CHARS,
+  parseYouTubeUrl, isYouTubeUrl,
+  captionTracksFromPlayerResponse, videoMetaFromPlayerResponse,
+  pickCaptionTrack, timedTextUrl, parseTimedText,
+  groupSegments, formatTimestamp, formatTranscript,
+  buildTranscriptDocument, transcriptFromTracks,
+} from './media-transcript.js';
+export {
   ACCESS_LOG_VERSION, ACCESS_LOG_MAX, redactAccessArgs, makeAccessEvent,
   createAccessLog, makeStorageTier, formatBytes,
 } from './observability.js';
