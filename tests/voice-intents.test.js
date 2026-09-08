@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_WAKE, compileWake, findWakeCommand, parseCommand, parseDuration, parseClock,
+  DEFAULT_WAKE, compileWake, findWakeCommand, findWakeCommands, parseCommand, parseDuration, parseClock,
   parseWhen, parseNumberWords, normalizeSpeech, editDistance, defineVoiceIntent,
   createVoiceIntentRegistry, defaultVoiceIntents, commandsFromSegments, timerIntent,
   reminderIntent, noteIntent, monitorIntent, scheduleIntent, VoiceIntentError, MAX_COMMANDS_PER_DELTA,
@@ -504,6 +504,27 @@ test('a spoken timer the grammar misses is still a job, not a chat message', () 
   assert.equal(settleRefinement({ request: 'what time is the standup', kind: 'timer' }).kind, 'question');
   assert.ok(REFINEMENT_SCHEMA.fields.kind.values.includes('timer'));
   assert.match(refinementPrompt('x'), /timer/, 'and the model is told the kind exists');
+});
+
+test('the product\'s own name, used as a word, does not end the command or start one', () => {
+  // Verbatim: "Okay, chat panel. Take the notes of whatever that we spoke so far in chat panel
+  // notes." The wake phrase is in there twice — once as an address, once as the NAME OF WHERE
+  // THE NOTES GO. The second was treated as a fresh address, and did two wrong things at once:
+  // it cut the command down to "…so far", losing the destination, and it emitted "notes. So
+  // that is good." as a command of its own, which noteIntent matched. One request, two notes.
+  const wake = compileWake(DEFAULT_WAKE);
+  const said = 'Okay, chat panel. Take the notes of whatever that we spoke so far in chat panel notes. So that is good.';
+  const hits = findWakeCommands(said, wake);
+  assert.equal(hits.length, 1, 'a mention inside the command is not a second command');
+  assert.match(hits[0].command, /in chat panel notes/, 'and the command keeps the words it used to lose');
+
+  // The safety net is intact: a mention that stands on its own still gets through, because the
+  // intent match is what rescues an address this heuristic misjudged, and dropping those would
+  // trade a stray action for a lost one.
+  const apart = findWakeCommands('chatpanel, set a timer for 5 minutes. Okay chatpanel, take a note.', wake);
+  assert.equal(apart.length, 2, 'two real addresses are still two commands');
+  assert.match(apart[0].command, /^set a timer for 5 minutes/);
+  assert.match(apart[1].command, /^take a note/);
 });
 
 test('a spoken request to DO something has a kind of its own', () => {
