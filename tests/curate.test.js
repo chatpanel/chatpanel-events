@@ -250,3 +250,14 @@ test('redaction placeholders are excluded from links and counted instead', () =>
   assert.match(formatSurvey(report), /REDACTED MENTIONS/);
   assert.match(formatSurvey(report), /vault is per-conversation/);
 });
+
+test('a self-label survives mentionsFrom so resolution can decide about it', () => {
+  // The exception has to live at BOTH layers or it lives at neither: a self-label fails
+  // isSubjectCandidate (it is a pronoun), so filtering candidacy here — before resolution
+  // knows whether there is a name to fold it into — threw the user out of their own corpus.
+  const records = [rec('m1', { type: 'meeting', people: ['You', 'Jordan Blake'] })];
+  const names = mentionsFrom(records).filter((m) => m.kind === 'person').map((m) => m.name);
+  assert.deepEqual(names, ['You', 'Jordan Blake']);
+  // A self-label is a person's exception only — a TOPIC called "you" is filtered normally.
+  assert.deepEqual(mentionsFrom([rec('m2', { topics: ['meeting'] })]), []);
+});

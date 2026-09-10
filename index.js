@@ -45,7 +45,8 @@ export {
   SUBJECT_KINDS, DEFAULT_THRESHOLD, MAX_SUBJECTS, MAX_SUBJECT_CHARS,
   normalizeSubject, subjectKey, subjectTokens, isSubjectCandidate,
   aliasMap, resolveSubjects, earnsBrief, rankSubjects,
-  REDACTION_TOKEN_TYPES, isRedactionToken, SELF_LABELS, stripQualifiers, suggestMerges,
+  REDACTION_TOKEN_TYPES, isRedactionToken, SELF_LABELS, isSelfLabel, stripQualifiers,
+  suggestMerges,
 } from './entity.js';
 export {
   BRIEF_STATES, CLAIM_KINDS, MAX_CLAIMS, MAX_CLAIM_REFS, MAX_BRIEF_RECORDS, MAX_BRIEF_CHARS,

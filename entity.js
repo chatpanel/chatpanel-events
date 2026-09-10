@@ -120,6 +120,18 @@ const STOP_SUBJECTS = new Set([
 export const SELF_LABELS = Object.freeze(['you', 'me', 'myself', 'yourself', 'i']);
 
 /**
+ * Is this the platform's label for the local participant?
+ *
+ * Exported because two layers need the SAME exception and getting the order wrong is subtle:
+ * a self-label fails `isSubjectCandidate` (it is a pronoun), so any pass that filters
+ * candidacy BEFORE `resolveSubjects` can fold it has already thrown the user away. `curate.js
+ * mentionsFrom` keeps them for exactly this reason and lets resolution decide.
+ */
+export function isSelfLabel(name) {
+  return SELF_LABELS.includes(normalizeSubject(name));
+}
+
+/**
  * Strip the decoration a directory or a conference client hangs off a person's name.
  *
  * The same human arrives as "Alex Rivera", "Alex Rivera (ACME)", "Alex Rivera - Host" and
@@ -185,7 +197,7 @@ export function isSubjectCandidate(name, { kind = 'topic' } = {}) {
   // "You" is a pronoun, not a person. Without a `self` name to fold it into (resolveSubjects
   // takes one), it must not become a subject of its own — every meeting has a "You" and they
   // are not all the same participant.
-  if (kind === 'person' && SELF_LABELS.includes(normalizeSubject(name))) return false;
+  if (kind === 'person' && isSelfLabel(name)) return false;
   const norm = normalizeSubject(name);
   if (!norm || norm.length < 2) return false;
   const tokens = norm.split(' ').filter(Boolean);
@@ -271,7 +283,7 @@ export function resolveSubjects(mentions = [], { merges = null, self = '' } = {}
     if (!SUBJECT_KINDS.includes(kind)) continue;
     // A self-label survives candidacy ONLY when there is a name to fold it into. Otherwise
     // it is a pronoun, and every meeting's "You" would pile into one fictional participant.
-    const isSelf = kind === 'person' && !!selfCanonical && SELF_LABELS.includes(normalizeSubject(m.name));
+    const isSelf = kind === 'person' && !!selfCanonical && isSelfLabel(m.name);
     if (!isSelf && !isSubjectCandidate(m.name, { kind })) continue;
     if (!byKind.has(kind)) byKind.set(kind, []);
     byKind.get(kind).push(m);
@@ -282,7 +294,7 @@ export function resolveSubjects(mentions = [], { merges = null, self = '' } = {}
     // Only PERSON names carry the short-form rule. A topic named "design" is not the
     // "design review" topic, and folding them would silently merge two pages.
     const aliases = kind === 'person'
-      ? aliasMap(list.map((m) => stripQualifiers(m.name)).filter((n) => !SELF_LABELS.includes(normalizeSubject(n))))
+      ? aliasMap(list.map((m) => stripQualifiers(m.name)).filter((n) => !isSelfLabel(n)))
       : new Map();
     for (const m of list) {
       const raw = String(m.name ?? '').trim();

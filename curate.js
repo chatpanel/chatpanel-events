@@ -24,7 +24,7 @@ import { normalizeTag } from './tags.js';
 // distance.js for why it is not imported from voice-intents.js, which is where it grew up.
 import { editDistance } from './distance.js';
 import {
-  DEFAULT_THRESHOLD, MAX_SUBJECTS, isRedactionToken, isSubjectCandidate,
+  DEFAULT_THRESHOLD, MAX_SUBJECTS, isRedactionToken, isSelfLabel, isSubjectCandidate,
   normalizeSubject, rankSubjects, resolveSubjects,
 } from './entity.js';
 
@@ -290,7 +290,11 @@ export function mentionsFrom(records = []) {
     for (const name of r.topics) out.push({ kind: 'topic', name, recordId: r.id });
     for (const name of wikilinksIn(r.text)) out.push({ kind: 'title', name, recordId: r.id });
   }
-  return out.filter((m) => isSubjectCandidate(m.name, { kind: m.kind }));
+  // A person's self-label ("You") survives candidacy HERE and is decided by
+  // `resolveSubjects`, which is the only layer that knows whether we have a name to fold it
+  // into. Filtering it out at this level threw the user out of their own corpus.
+  return out.filter((m) => isSubjectCandidate(m.name, { kind: m.kind })
+    || (m.kind === 'person' && isSelfLabel(m.name)));
 }
 
 /** Query terms, folded the way `sources-retrieval.js queryTerms` folds them. */
