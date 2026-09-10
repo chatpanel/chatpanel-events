@@ -211,3 +211,7 @@ export {
 
 // One markdown renderer for every client — escaped first, link policy injected.
 export { renderMarkdown, defaultLinkPolicy } from './markdown-render.js';
+
+// A meeting read back out of the flat text the warm store holds — the same grammar the
+// extension writes and MCP reads, so every client shows one transcript, not three.
+export { parseMeetingText, speakerStats, densityRibbon } from './meeting-text.js';
