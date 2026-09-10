@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   duplicateTitles, formatSurvey, mentionsFrom, normalizeRecord,
   orphanRecords, spanningQuestions, surveyCorpus, thresholdSweep, vocabularyDrift,
@@ -213,4 +214,13 @@ test('formatSurvey renders the verdict the measurement exists to produce', () =>
   const thin = formatSurvey(surveyCorpus(records, { questions: ['completely unrelated wording here'] }));
   assert.match(thin, /THIN/);
   assert.equal(formatSurvey(null), 'no report');
+});
+
+test('the distance primitive lives on its own, not inside the feature that grew it', () => {
+  // Importing it from voice-intents.js put that module (79 KB) and its structured.js
+  // dependency (41 KB) on the MV3 service worker's cold start, for forty lines of
+  // arithmetic. A primitive two unrelated features need belongs in its own module.
+  const src = readFileSync(new URL('../curate.js', import.meta.url), 'utf8');
+  assert.ok(!/from '\.\/voice-intents\.js'/.test(src), 'curate.js must not import voice-intents.js');
+  assert.match(src, /from '\.\/distance\.js'/);
 });
