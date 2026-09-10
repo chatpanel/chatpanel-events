@@ -197,3 +197,14 @@ export {
   THEMES, LIGHT, DARK, PALETTES, SHAPE, TOKEN_NAMES, TOKEN_ROLES,
   paletteFor, cssVarName, toCssVars, themeStylesheet, resolveTheme,
 } from './theme.js';
+
+// Plans, gates and the signed entitlement — one definition, every client. The public
+// verification key lives here so a rotation reaches all of them, instead of being a
+// hand-edit in each (which is what CLAUDE.md currently has to warn about).
+export {
+  PLANS, API_BASE, ENDPOINTS, ENTITLEMENT_PUBLIC_JWK, UPGRADE_URL,
+  FEATURE_TIER, PRO_FEATURES, TEAM_FEATURES, FREE_LIMITS,
+  RECHECK_INTERVAL_MS, EntitlementError,
+  checkoutUrl, planOf, planLabel, isPro, isTeam, can, tierFor, withinFreeLimit,
+  verifyEntitlement, licenseFromPayload, needsRecheck,
+} from './entitlement.js';
