@@ -24,9 +24,10 @@ import { normalizeTag } from './tags.js';
 // distance.js for why it is not imported from voice-intents.js, which is where it grew up.
 import { editDistance } from './distance.js';
 import {
-  DEFAULT_THRESHOLD, MAX_SUBJECTS, isRedactionToken, isSelfLabel, isSubjectCandidate,
+  DEFAULT_THRESHOLD, MAX_SUBJECTS, isSelfLabel, isSubjectCandidate,
   normalizeSubject, rankSubjects, resolveSubjects,
 } from './entity.js';
+import { isRedactionToken } from './redaction-tokens.js';
 
 /** Wikilink syntax, matching store-notes.js `extractLinks` exactly — one grammar, not two. */
 const WIKILINK_RE = /\[\[([^[\]\n]+)\]\]/g;
