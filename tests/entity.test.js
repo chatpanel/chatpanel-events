@@ -321,10 +321,10 @@ test('merge suggestions stay fast and keep their findings in a big corpus', () =
 
 test('a person seen only with a qualifier is still displayed without it', () => {
   // The canonical was already right; the DISPLAY form was recorded raw, so a subject that
-  // only ever appeared as "Sam Okonkwo [OCI - SCE]" got a page titled exactly that.
+  // only ever appeared as "Sam Okonkwo [ACME - Platform]" got a page titled exactly that.
   const subjects = resolveSubjects([
-    { kind: 'person', name: 'Sam Okonkwo [OCI - SCE]', recordId: 'w1' },
-    { kind: 'person', name: 'Sam Okonkwo [OCI - SCE]', recordId: 'w2' },
+    { kind: 'person', name: 'Sam Okonkwo [ACME - Platform]', recordId: 'w1' },
+    { kind: 'person', name: 'Sam Okonkwo [ACME - Platform]', recordId: 'w2' },
   ]);
   const s = subjects.get('person:sam okonkwo');
   assert.ok(s, 'the canonical must strip the qualifier');
