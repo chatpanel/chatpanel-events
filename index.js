@@ -208,3 +208,6 @@ export {
   checkoutUrl, planOf, planLabel, isPro, isTeam, can, tierFor, withinFreeLimit,
   verifyEntitlement, licenseFromPayload, needsRecheck,
 } from './entitlement.js';
+
+// One markdown renderer for every client — escaped first, link policy injected.
+export { renderMarkdown, defaultLinkPolicy } from './markdown-render.js';
