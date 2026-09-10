@@ -8,6 +8,7 @@ import {
   meetingStartedTrigger, voiceCommandTrigger, ScheduleError, MISSED_POLICIES, saidIn,
   utteranceLooksComplete, coalesceMatches, matchTexts,
   TEXT_DELTA, TRIGGER_SOURCES, eventSource, sourceAllowed,
+  describeSchedule, WEEKDAY_NAMES,
 } from '../schedule.js';
 
 // Monday 2026-06-01, 10:00 local. Expectations are built with the same local constructor,
@@ -413,4 +414,53 @@ test('phrase and topic triggers are gated the same way', () => {
   assert.equal(one(phraseTrigger.id, { any: ['action item'] }, typed), 0, 'meeting-only by default');
   assert.equal(one(phraseTrigger.id, { any: ['action item'], sources: ['note'] }, typed), 1);
   assert.equal(one(topicTrigger.id, { terms: ['pricing'], sources: ['note'] }, typed), 1);
+});
+
+// ---------------------------------------------------------------------------
+// describeSchedule — reading a schedule back to the person who set it
+// ---------------------------------------------------------------------------
+
+test('a schedule reads back as a sentence, in every kind it supports', () => {
+  assert.equal(describeSchedule({ kind: 'daily', hour: 8, minute: 0 }), 'every day at 08:00');
+  assert.equal(describeSchedule({ kind: 'daily', hour: 17, minute: 30 }), 'every day at 17:30');
+  assert.equal(describeSchedule({ kind: 'weekly', weekday: 1, hour: 9, minute: 5 }), 'every Monday at 09:05');
+  assert.equal(describeSchedule({ kind: 'weekly', weekday: 0, hour: 9 }), 'every Sunday at 09:00');
+});
+
+test('weekdaysOnly is SAID — a job that skips weekends must not read as "every day"', () => {
+  assert.equal(
+    describeSchedule({ kind: 'daily', hour: 8, minute: 0, weekdaysOnly: true }),
+    'every weekday at 08:00',
+  );
+});
+
+test('an interval is described in the largest unit that divides it evenly', () => {
+  assert.equal(describeSchedule({ kind: 'interval', everyMs: 90 * 60_000 }), 'every 90 minutes');
+  assert.equal(describeSchedule({ kind: 'interval', everyMs: 60 * 60_000 }), 'every hour');
+  assert.equal(describeSchedule({ kind: 'interval', everyMs: 3 * 60 * 60_000 }), 'every 3 hours');
+  assert.equal(describeSchedule({ kind: 'interval', everyMs: 24 * 60 * 60_000 }), 'every day');
+  assert.equal(describeSchedule({ kind: 'interval', everyMs: 48 * 60 * 60_000 }), 'every 2 days');
+});
+
+test('what it cannot describe it leaves blank, rather than inventing a label', () => {
+  assert.equal(describeSchedule(null), '');
+  assert.equal(describeSchedule({}), '');
+  assert.equal(describeSchedule({ kind: 'nonsense' }), '');
+  assert.equal(describeSchedule({ kind: 'once' }), '');            // no `at`
+  assert.equal(describeSchedule({ kind: 'interval', everyMs: 5 }), ''); // below the floor
+  assert.equal(describeSchedule({ kind: 'weekly', weekday: 9, hour: 1 }), '');
+});
+
+test('every schedule the validator ACCEPTS can be described', () => {
+  const valid = [
+    { kind: 'once', at: Date.now() + 60_000 },
+    { kind: 'interval', everyMs: 60_000 },
+    { kind: 'daily', hour: 0, minute: 0 },
+    { kind: 'daily', hour: 23, minute: 59, weekdaysOnly: true },
+    ...WEEKDAY_NAMES.map((_, weekday) => ({ kind: 'weekly', weekday, hour: 12, minute: 0 })),
+  ];
+  for (const s of valid) {
+    validateSchedule(s); // throws if the fixture itself is wrong
+    assert.notEqual(describeSchedule(s), '', `no description for ${JSON.stringify(s)}`);
+  }
 });
