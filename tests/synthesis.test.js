@@ -62,7 +62,11 @@ test('the schema reads a real model answer, fences and all', () => {
 });
 
 // ── the gate ─────────────────────────────────────────────────────────────────
-const brief = { id: 'brief:x', claims: [{ id: 'c1', kind: 'presence', text: 'Appears in 3 records.', refs: [{ kind: 'meeting', id: 'm1', hash: 'h' }], cls: 'R' }], updatedAt: 1 };
+const brief = {
+  id: 'brief:x', kind: 'topic', subject: { name: 'Atlas', aliases: [] }, records: [],
+  claims: [{ id: 'c1', kind: 'presence', text: 'Appears in 3 records.', refs: [{ kind: 'meeting', id: 'm1', hash: 'h' }], cls: 'R' }],
+  updatedAt: 1,
+};
 const cClaim = (text) => claimsFromSynthesis({ claims: [{ text, refs: ['meeting:m1'] }] }, { knownIds: known, now: 2 }).claims[0];
 
 test('a proposal never carries promoted, and only accept() produces it', () => {
@@ -109,4 +113,55 @@ test('convergence: drafters that agree propose, drafters that disagree go to the
   // One draft alone can never converge with itself.
   assert.equal(converge([a]).agreed.length, 0);
   assert.equal(converge([]).disputed.length, 0);
+});
+
+// ── backlinks and supersession: what makes this a wiki rather than a summary ──
+import { linkClaims } from '../promotion.js';
+import { briefLinks, parseBriefText, briefToText } from '../knowledge.js';
+
+const subjects = [
+  { id: 'brief:person-jordan', name: 'Jordan Blake', aliases: ['jordan'], kind: 'person' },
+  { id: 'brief:topic-atlas', name: 'Atlas', aliases: ['atlas migration'], kind: 'topic' },
+  { id: 'brief:topic-pricing', name: 'pricing', kind: 'topic' },
+];
+
+test('an accepted claim links to every other brief it names — whole-word, never itself', () => {
+  const [c] = linkClaims([cClaim('Jordan owns the Atlas rollback plan; repricing is separate.')], subjects, { selfId: 'brief:topic-atlas' });
+  const briefsLinked = c.refs.filter((r) => r.kind === 'brief').map((r) => r.id);
+  assert.deepEqual(briefsLinked, ['brief:person-jordan'], 'Jordan by alias; Atlas is self; "repricing" is not "pricing"');
+  assert.ok(c.refs.some((r) => r.kind === 'meeting'), 'the record refs are kept');
+  // Idempotent — linking twice adds nothing.
+  assert.equal(linkClaims([c], subjects, { selfId: 'brief:topic-atlas' })[0].refs.length, c.refs.length);
+  assert.deepEqual(linkClaims([], subjects), []);
+  assert.equal(linkClaims([cClaim('x')], [])[0].refs.length, 1);
+});
+
+test('accept() links and supersedes, and the brief keeps its history', () => {
+  const old = { ...cClaim('Cutover is planned for Q3 after the load test.'), id: 'old1', state: 'promoted' };
+  const b = { ...brief, id: 'brief:topic-atlas', claims: [brief.claims[0], old] };
+  const p = propose({ briefId: 'brief:topic-atlas', claims: [cClaim('Cutover moved to Q4 after the load test, Jordan confirmed.')], now: 4 });
+  const { brief: next, proposal } = accept(b, p, { now: 5, subjects });
+
+  const newest = next.claims.at(-1);
+  assert.ok(newest.refs.some((r) => r.kind === 'brief' && r.id === 'brief:person-jordan'), 'backlink added on accept');
+  assert.equal(newest.supersedes, 'old1', 'the new claim knows what it replaced');
+  const replaced = next.claims.find((c) => c.id === 'old1');
+  assert.equal(replaced.supersededBy, newest.id, 'the old claim is marked, not deleted');
+  assert.equal(replaced.supersededAt, 5);
+  assert.ok(replaced.refs.length, 'and keeps its refs — "when did this change" stays answerable');
+  assert.equal(next.claims.length, 3, 'nothing was removed');
+  assert.deepEqual(briefLinks(next), ['brief:person-jordan']);
+  assert.ok(proposal.claims[0].refs.some((r) => r.kind === 'brief'), 'the settled proposal carries the links, so a rebuild re-applies them');
+
+  // The text form — what an agent reads over MCP — shows the history, and round-trips.
+  const text = briefToText(next);
+  assert.match(text, /- \[superseded\] Cutover is planned for Q3/);
+  assert.ok(parseBriefText(text).claims.some((c) => c.refs.some((r) => r.kind === 'brief')), 'brief refs survive the text form');
+});
+
+test('a claim that supersedes nothing supersedes nothing', () => {
+  const p = propose({ briefId: 'brief:x', claims: [cClaim('Sam owns the runbook.')], now: 4 });
+  const { brief: next } = accept(brief, p, { now: 5 });
+  assert.ok(!next.claims.some((c) => c.supersededBy));
+  assert.equal(next.claims.at(-1).supersedes, undefined);
 });
