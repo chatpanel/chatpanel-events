@@ -318,3 +318,18 @@ test('merge suggestions stay fast and keep their findings in a big corpus', () =
   assert.ok(pair('atlas'), 'a contained name');
   assert.ok(pair('atals migration'), 'a transposed typo');
 });
+
+test('a person seen only with a qualifier is still displayed without it', () => {
+  // The canonical was already right; the DISPLAY form was recorded raw, so a subject that
+  // only ever appeared as "Sam Okonkwo [OCI - SCE]" got a page titled exactly that.
+  const subjects = resolveSubjects([
+    { kind: 'person', name: 'Sam Okonkwo [OCI - SCE]', recordId: 'w1' },
+    { kind: 'person', name: 'Sam Okonkwo [OCI - SCE]', recordId: 'w2' },
+  ]);
+  const s = subjects.get('person:sam okonkwo');
+  assert.ok(s, 'the canonical must strip the qualifier');
+  assert.equal(s.name, 'Sam Okonkwo', 'and so must the name the user reads');
+  // A topic keeps its brackets — "Migration (Phase 2)" is a different topic from "Migration".
+  const t = resolveSubjects([{ kind: 'topic', name: 'Migration (Phase 2)', recordId: 'n1' }]);
+  assert.equal([...t.values()][0].name, 'Migration (Phase 2)');
+});
