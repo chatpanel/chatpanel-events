@@ -30,23 +30,20 @@ import { isRedactionToken } from './redaction-tokens.js';
 
 export { REDACTION_TOKEN_TYPES, isRedactionToken } from './redaction-tokens.js';
 
-/** What a subject can be. `title` is a record title someone linked to with [[…]]. */
-export const SUBJECT_KINDS = Object.freeze(['person', 'topic', 'tag', 'title']);
+// Naming and sizing a subject live next door, so a caller that needs only those does not
+// drag alias resolution and a Levenshtein along. Re-exported: no caller of entity.js changes.
+import {
+  DEFAULT_THRESHOLD, MAX_SUBJECTS, MAX_SUBJECT_CHARS, SELF_LABELS,
+  isSelfLabel, normalizeSubject, stripQualifiers,
+} from './subject-name.js';
+import { SUBJECT_KINDS } from './subject-kinds.js';
 
-/**
- * A subject earns a brief with EVIDENCE, not on first sight (I-K4).
- *
- * PROVISIONAL. These numbers are the W0 measurement's whole point: `surveyCorpus()` reports
- * how many subjects clear them so they can be set from a real corpus instead of taste. Do
- * not treat them as decided until that report has been run.
- */
-export const DEFAULT_THRESHOLD = Object.freeze({ records: 3, mentions: 5 });
+export { SUBJECT_KINDS } from './subject-kinds.js';
+export {
+  DEFAULT_THRESHOLD, MAX_SUBJECTS, MAX_SUBJECT_CHARS, SELF_LABELS, isSelfLabel,
+  normalizeSubject, stripQualifiers, subjectKey, subjectTokens,
+} from './subject-name.js';
 
-/** Ceiling on the set of briefs, for the same reason memory.js caps memories. Provisional. */
-export const MAX_SUBJECTS = 500;
-
-/** Longest name we will treat as a subject — past this it is a sentence, not a subject. */
-export const MAX_SUBJECT_CHARS = 60;
 
 // Words that are never a subject on their own. A one-token candidate has to survive this
 // list before it can become a page, because "notes", "meeting" and "update" appear in every
@@ -58,78 +55,6 @@ const STOP_SUBJECTS = new Set([
   'untitled', 'draft', 'drafts', 'new', 'old', 'today', 'yesterday', 'tomorrow', 'week',
   'day', 'month', 'year', 'time', 'people', 'person', 'team', 'work',
 ]);
-
-/**
- * Labels a meeting platform uses for the person holding the microphone.
- *
- * Zoom, Meet and Teams all write the local participant as "You" — so the user appears in
- * their own corpus under a name that is not a name, alongside however their colleagues'
- * clients spelled them. Resolving these needs one fact only the host has: who "you" IS.
- * `resolveSubjects` takes it rather than guessing, and with no `self` supplied these stay
- * unresolved instead of collapsing every meeting's local speaker into one fictional person.
- */
-export const SELF_LABELS = Object.freeze(['you', 'me', 'myself', 'yourself', 'i']);
-
-/**
- * Is this the platform's label for the local participant?
- *
- * Exported because two layers need the SAME exception and getting the order wrong is subtle:
- * a self-label fails `isSubjectCandidate` (it is a pronoun), so any pass that filters
- * candidacy BEFORE `resolveSubjects` can fold it has already thrown the user away. `curate.js
- * mentionsFrom` keeps them for exactly this reason and lets resolution decide.
- */
-export function isSelfLabel(name) {
-  return SELF_LABELS.includes(normalizeSubject(name));
-}
-
-/**
- * Strip the decoration a directory or a conference client hangs off a person's name.
- *
- * The same human arrives as "Alex Rivera", "Alex Rivera (ACME)", "Alex Rivera - Host" and
- * "Alex Rivera (he/him)" depending on which client wrote the label. The part in parentheses
- * or after a dash is an org, a role or a pronoun set — decoration, never identity — so it is
- * removed before folding.
- *
- * NOT removed for non-person subjects: "Migration (Phase 2)" is a different topic from
- * "Migration", where "Alex Rivera (ACME)" is not a different person from "Alex Rivera".
- */
-export function stripQualifiers(name) {
-  return String(name ?? '')
-    .replace(/\s*[([{][^)\]}]*[)\]}]\s*/g, ' ')   // (ACME), [external], {guest}
-    .replace(/\s+[-–—|·,]\s+.*$/, '')             // - Host, — Guest, | ACME
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/**
- * Fold a name to its canonical form: lowercase, Unicode-aware, separators collapsed.
- *
- * Spaces survive as spaces (unlike normalizeTag, which folds them to '-') because a person's
- * name is read back to the user and "alex rivera" has to be recognisable as one.
- */
-export function normalizeSubject(name) {
-  const raw = String(name ?? '').normalize('NFKC').trim().replace(/^[#@]+/, '');
-  if (!raw) return '';
-  return raw
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim()
-    .slice(0, MAX_SUBJECT_CHARS)
-    .trim();
-}
-
-/** `person:alex rivera` — the identity a brief is filed under. '' when nothing survives. */
-export function subjectKey(kind, name) {
-  const norm = normalizeSubject(name);
-  if (!norm || !SUBJECT_KINDS.includes(kind)) return '';
-  return `${kind}:${norm}`;
-}
-
-/** Tokens of a canonical name. */
-export function subjectTokens(name) {
-  const norm = normalizeSubject(name);
-  return norm ? norm.split(' ').filter(Boolean) : [];
-}
 
 /**
  * Is this string worth considering as a subject at all?
