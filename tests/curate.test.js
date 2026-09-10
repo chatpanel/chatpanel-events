@@ -261,3 +261,51 @@ test('a self-label survives mentionsFrom so resolution can decide about it', () 
   // A self-label is a person's exception only — a TOPIC called "you" is filtered normally.
   assert.deepEqual(mentionsFrom([rec('m2', { topics: ['meeting'] })]), []);
 });
+
+test('the near-duplicate passes are near-linear, not N x N', () => {
+  // This is the design's own "no N×N scan" rule, enforced instead of remembered. The
+  // pairwise version ran 1s at 2,000 records, 10s at 6,000 and 40s at 12,000 — on the UI
+  // thread, which is an unresponsive tab rather than a slow report. Blocking made it flat.
+  const corpus = (n) => Array.from({ length: n }, (_, i) => rec(`c${i}`, {
+    type: 'chat', title: `Unique conversation number ${i}`, text: 'body', tags: [`t${i % 300}`],
+  }));
+
+  const time = (n) => { const t = Date.now(); duplicateTitles(corpus(n)); return Date.now() - t; };
+  const small = Math.max(time(1500), 1);
+  const large = Math.max(time(12000), 1);
+  // Quadratic would be ~64x for an 8x corpus. Allow generous slack for a loaded CI box and
+  // still fail loudly on a return to pairwise.
+  assert.ok(large < small * 12,
+    `duplicateTitles looks quadratic again: ${small}ms at 1.5k vs ${large}ms at 12k`);
+  assert.ok(large < 5000, `12k records took ${large}ms — that is a frozen tab, not a report`);
+});
+
+test('blocking still finds the duplicates that matter, in a big corpus', () => {
+  // Blocking is only worth it if the findings survive. A typo at the FRONT is caught by the
+  // suffix key and one at the BACK by the prefix key — that is why there are two.
+  const records = [
+    ...Array.from({ length: 6000 }, (_, i) => rec(`c${i}`, { title: `Unique conversation number ${i}` })),
+    rec('a1', { title: 'Design Review' }),
+    rec('a2', { title: 'design  review' }),
+    rec('b1', { title: 'Atlas migration plan' }),
+    rec('b2', { title: 'Atals migration plan' }),
+    rec('d1', { title: 'Quarterly planning session' }),
+    rec('d2', { title: 'Quarterly planning sessoin' }),
+  ];
+  const groups = duplicateTitles(records);
+  const found = (id) => groups.find((g) => g.ids.includes(id));
+  assert.ok(found('a1')?.ids.includes('a2'), 'an exact normalized duplicate');
+  assert.ok(found('b1')?.ids.includes('b2'), 'a typo at the START, caught by the suffix block');
+  assert.ok(found('d1')?.ids.includes('d2'), 'a typo at the END, caught by the prefix block');
+});
+
+test('a pathological corpus costs a truncated report, never a hung page', () => {
+  // Ten thousand titles that all begin the same way land in one block, and a block is
+  // compared pairwise. The budget is what stops that being the old bug wearing a hat.
+  const records = Array.from({ length: 9000 }, (_, i) => rec(`c${i}`, { title: `Weekly project status report ${'z'.repeat(i % 9)}${i}` }));
+  const t = Date.now();
+  const groups = duplicateTitles(records);
+  const ms = Date.now() - t;
+  assert.ok(ms < 5000, `a same-prefix corpus took ${ms}ms — the comparison budget is not holding`);
+  assert.ok(Array.isArray(groups));
+});
