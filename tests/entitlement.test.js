@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import {
-  PLANS, FEATURE_TIER, FREE_LIMITS, PRO_FEATURES, TEAM_FEATURES, ENDPOINTS,
+  PLANS, TOKEN_TYPE, FEATURE_TIER, FREE_LIMITS, PRO_FEATURES, TEAM_FEATURES, ENDPOINTS,
   ENTITLEMENT_PUBLIC_JWK, checkoutUrl,
   planOf, planLabel, isPro, isTeam, can, tierFor, withinFreeLimit,
   verifyEntitlement, licenseFromPayload, needsRecheck, RECHECK_INTERVAL_MS,
@@ -113,41 +113,41 @@ async function makeSigner() {
 
 test('a validly signed, correctly bound token verifies', async () => {
   const { subtle, sign } = await makeSigner();
-  const token = await sign({ plan: 'pro', install: 'dev-1', exp: NOW + DAY });
+  const token = await sign({ typ: 'ent', plan: 'pro', install_id: 'dev-1', exp: NOW + DAY });
   const payload = await verifyEntitlement(token, 'dev-1', { subtle, now: NOW });
   assert.equal(payload.plan, 'pro');
 });
 
 test('a token issued to ANOTHER install is refused — pasting one from a forum grants nothing', () => {
   return makeSigner().then(async ({ subtle, sign }) => {
-    const token = await sign({ plan: 'pro', install: 'someone-else', exp: NOW + DAY });
+    const token = await sign({ typ: 'ent', plan: 'pro', install_id: 'someone-else', exp: NOW + DAY });
     assert.equal(await verifyEntitlement(token, 'dev-1', { subtle, now: NOW }), null);
   });
 });
 
 test('a token with NO install binding is refused — unbound must not mean universal', async () => {
   const { subtle, sign } = await makeSigner();
-  const token = await sign({ plan: 'pro', exp: NOW + DAY });
+  const token = await sign({ typ: 'ent', plan: 'pro', exp: NOW + DAY });
   assert.equal(await verifyEntitlement(token, 'dev-1', { subtle, now: NOW }), null);
 });
 
 test('an expired token is refused', async () => {
   const { subtle, sign } = await makeSigner();
-  const token = await sign({ plan: 'pro', install: 'dev-1', exp: NOW - 1 });
+  const token = await sign({ typ: 'ent', plan: 'pro', install_id: 'dev-1', exp: NOW - 1 });
   assert.equal(await verifyEntitlement(token, 'dev-1', { subtle, now: NOW }), null);
 });
 
 test('a tampered payload is refused', async () => {
   const { subtle, sign } = await makeSigner();
-  const token = await sign({ plan: 'free', install: 'dev-1', exp: NOW + DAY });
-  const forged = `${b64url(new TextEncoder().encode(JSON.stringify({ plan: 'team', install: 'dev-1', exp: NOW + DAY })))}.${token.split('.')[1]}`;
+  const token = await sign({ typ: 'ent', plan: 'free', install_id: 'dev-1', exp: NOW + DAY });
+  const forged = `${b64url(new TextEncoder().encode(JSON.stringify({ typ: 'ent', plan: 'team', install_id: 'dev-1', exp: NOW + DAY })))}.${token.split('.')[1]}`;
   assert.equal(await verifyEntitlement(forged, 'dev-1', { subtle, now: NOW }), null);
 });
 
 test('a token signed by the WRONG key is refused', async () => {
   const a = await makeSigner();
   const b = await makeSigner();
-  const token = await a.sign({ plan: 'pro', install: 'dev-1', exp: NOW + DAY });
+  const token = await a.sign({ typ: 'ent', plan: 'pro', install_id: 'dev-1', exp: NOW + DAY });
   assert.equal(await verifyEntitlement(token, 'dev-1', { subtle: b.subtle, now: NOW }), null);
 });
 
@@ -159,14 +159,18 @@ test('garbage never throws — a licence check degrades to free, it does not cra
 
 test('an unknown plan in a signed token is refused', async () => {
   const { subtle, sign } = await makeSigner();
-  const token = await sign({ plan: 'enterprise', install: 'dev-1', exp: NOW + DAY });
+  const token = await sign({ typ: 'ent', plan: 'enterprise', install_id: 'dev-1', exp: NOW + DAY });
   assert.equal(await verifyEntitlement(token, 'dev-1', { subtle, now: NOW }), null);
 });
 
 test('a payload becomes the licence record a client stores', () => {
-  const lic = licenseFromPayload({ plan: 'pro', install: 'dev-1', exp: NOW + DAY }, { at: NOW });
+  const lic = licenseFromPayload(
+    { typ: 'ent', plan: 'pro', install_id: 'dev-1', exp: NOW + DAY },
+    { at: NOW, expiresAt: NOW + 30 * DAY },
+  );
   assert.equal(lic.plan, 'pro');
-  assert.equal(lic.expiresAt, NOW + DAY);
+  assert.equal(lic.expiresAt, NOW + 30 * DAY, 'the SUBSCRIPTION date, not the token ttl');
+  assert.equal(lic.tokenExp, NOW + DAY);
   assert.equal(lic.checkedAt, NOW);
   assert.equal(isPro(lic, NOW), true);
 });
@@ -220,4 +224,57 @@ test('the embedded key is a public P-256 JWK and carries no private half', () =>
   assert.equal(ENTITLEMENT_PUBLIC_JWK.kty, 'EC');
   assert.equal(ENTITLEMENT_PUBLIC_JWK.crv, 'P-256');
   assert.equal('d' in ENTITLEMENT_PUBLIC_JWK, false, 'a private scalar must never ship in a client');
+});
+
+
+// --------------------------------------------------------------------------
+// The worker's contract
+// --------------------------------------------------------------------------
+
+test('a claim token is NOT accepted as an entitlement', async () => {
+  // The same key signs claim and restore tokens. A claim is deliberately install-INDEPENDENT
+  // and long-lived; accepting one here would turn a portable token into a licence.
+  const { subtle, sign } = await makeSigner();
+  const token = await sign({ typ: 'claim', sub: 's1', plan: 'pro', install_id: 'dev-1', exp: NOW + DAY });
+  assert.equal(await verifyEntitlement(token, 'dev-1', { subtle, now: NOW }), null);
+});
+
+test('the payload field names match what the worker signs', async () => {
+  // server/src/worker.js grant() signs { typ:'ent', install_id, plan, sub, iat, exp }.
+  // Reading `install` instead of `install_id` verified the signature, found undefined, and
+  // rejected every GENUINE token — a real bug, caught only by testing against a real one.
+  const { subtle, sign } = await makeSigner();
+  const workerShaped = await sign({
+    typ: TOKEN_TYPE, install_id: 'dev-1', plan: 'pro', sub: 'sub_123',
+    iat: NOW, exp: NOW + DAY,
+  });
+  const payload = await verifyEntitlement(workerShaped, 'dev-1', { subtle, now: NOW });
+  assert.ok(payload, 'a worker-shaped token must verify');
+  assert.equal(payload.sub, 'sub_123');
+  assert.equal(licenseFromPayload(payload, { at: NOW }).sub, 'sub_123');
+});
+
+
+test('a week offline does not drop a live subscription to Free', () => {
+  // The token ttl is about a week. Storing it as `expiresAt` meant planOf() lapsed the
+  // licence the moment the token aged out — while the subscription was still paid.
+  const lic = licenseFromPayload(
+    { typ: 'ent', plan: 'pro', install_id: 'dev-1', exp: NOW + 7 * DAY },
+    { at: NOW, expiresAt: NOW + 60 * DAY },
+  );
+  assert.equal(isPro(lic, NOW + 20 * DAY), true, 'still paid, still Pro');
+  assert.equal(isPro(lic, NOW + 90 * DAY), false, 'past the subscription, Free');
+});
+
+test('a stale token is re-checked before it expires', () => {
+  const lic = { plan: 'pro', checkedAt: NOW, expiresAt: NOW + 60 * DAY, tokenExp: NOW + 2 * 60 * 60 * 1000 };
+  assert.equal(needsRecheck(lic, { now: NOW + 60_000 }), true);
+});
+
+test('with no server date the licence does not expire locally', () => {
+  // Safer to be wrong in this direction: the next successful check corrects it, whereas
+  // lapsing someone who is paying does not correct itself.
+  const lic = licenseFromPayload({ typ: 'ent', plan: 'pro', install_id: 'dev-1', exp: NOW + DAY }, { at: NOW });
+  assert.equal(lic.expiresAt, 0);
+  assert.equal(isPro(lic, NOW + 365 * DAY), true);
 });

@@ -230,12 +230,25 @@ async function verifyKey(subtle) {
 }
 
 /**
+ * The payload field names the WORKER actually signs. Not negotiable, and not guessable:
+ * `server/src/worker.js` grant() signs `{ typ:'ent', install_id, plan, sub, iat, exp }`,
+ * and the extension checks `p.typ !== 'ent' || p.install_id !== installId`.
+ *
+ * Written down here because getting them wrong fails in the worst possible way: the
+ * signature verifies, the token is genuine, and the binding check reads `undefined` — so
+ * every real token is rejected and the user is told their licence is invalid. That is
+ * exactly what happened when this module first read `payload.install`.
+ */
+export const TOKEN_TYPE = 'ent';
+
+/**
  * Verify a server entitlement token and return its payload, or `null`.
  *
- * Three checks, and all three matter: the SIGNATURE (it came from the worker), the INSTALL
- * BINDING (it was issued to this device, so a token copied from a forum does not grant Pro),
- * and EXPIRY. Returning null rather than throwing is deliberate — a caller resolving a
- * licence at startup must degrade to free, not crash the app.
+ * Four checks, and all four matter: the SIGNATURE (it came from the worker), the TYPE (a
+ * `claim` token is also signed by the same key and must not be accepted as an entitlement),
+ * the INSTALL BINDING (issued to this device, so a token copied from a forum grants
+ * nothing), and EXPIRY. Returning null rather than throwing is deliberate — a caller
+ * resolving a licence at startup must degrade to free, not crash the app.
  */
 export async function verifyEntitlement(token, installId, { subtle = null, now = Date.now() } = {}) {
   if (!token || typeof token !== 'string' || token.indexOf('.') < 0) return null;
@@ -258,24 +271,42 @@ export async function verifyEntitlement(token, installId, { subtle = null, now =
 
   const payload = decodePayload(head);
   if (!payload) return null;
+  // The same key signs `claim` and `restore` tokens. Accepting one of those as an
+  // entitlement would turn a portable, install-independent token into a licence.
+  if (payload.typ !== TOKEN_TYPE) return null;
   if (payload.exp && now > Number(payload.exp)) return null;
-  // `install` binds the token to one device. A token with no binding is refused rather than
-  // treated as universal — "unbound" must never be the permissive case.
-  if (!payload.install || (installId && payload.install !== installId)) return null;
+  // `install_id` binds the token to one device. A token with no binding is refused rather
+  // than treated as universal — "unbound" must never be the permissive case.
+  if (!payload.install_id || (installId && payload.install_id !== installId)) return null;
   if (!PLANS.includes(payload.plan)) return null;
   return payload;
 }
 
-/** A verified payload → the licence record a client stores. */
-export function licenseFromPayload(payload, { at = Date.now() } = {}) {
+/**
+ * A verified payload → the licence record a client stores.
+ *
+ * TWO EXPIRIES, AND CONFLATING THEM COSTS SOMEONE THEIR PRO.
+ *
+ *   · `tokenExp` is the signed token's TTL — about a week. It exists so a revoked device
+ *     stops working without the server having to reach it.
+ *   · `expiresAt` is when the SUBSCRIPTION ends, which the server returns beside the token.
+ *
+ * `planOf` lapses a licence at `expiresAt`. Setting that from the token's TTL means anyone
+ * offline for longer than the TTL silently drops to Free while still paying — which is
+ * exactly the bug this signature now prevents by taking the subscription's date separately.
+ * With no server date the licence does not expire locally; the next successful check is
+ * what corrects it, and that is the safer direction to be wrong in.
+ */
+export function licenseFromPayload(payload, { at = Date.now(), expiresAt = 0 } = {}) {
   if (!payload) return { plan: 'free' };
   return {
     plan: payload.plan,
-    expiresAt: Number(payload.exp) || 0,
-    installId: payload.install || '',
-    seats: Number(payload.seats) || 0,
+    expiresAt: Number(expiresAt) || 0,
+    tokenExp: Number(payload.exp) || 0,
+    installId: payload.install_id || '',
+    sub: payload.sub || null,
     checkedAt: at,
-    source: payload.source || 'entitlement',
+    source: 'entitlement',
   };
 }
 
@@ -291,8 +322,11 @@ export const RECHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
 export function needsRecheck(license, { now = Date.now(), interval = RECHECK_INTERVAL_MS } = {}) {
   if (!license || !license.checkedAt) return true;
   if (now - license.checkedAt > interval) return true;
-  // Inside the last day of validity, check more eagerly: this is where a renewal lands and
-  // where a silent lapse would otherwise surprise someone mid-sentence.
-  if (license.expiresAt && license.expiresAt - now < 24 * 60 * 60 * 1000) return true;
+  // Inside the last day of either deadline, check eagerly: a renewal lands near the
+  // subscription date, and the token has to be replaced before ITS ttl runs out or the
+  // client is left holding something it can no longer prove.
+  const soon = 24 * 60 * 60 * 1000;
+  if (license.expiresAt && license.expiresAt - now < soon) return true;
+  if (license.tokenExp && license.tokenExp - now < soon) return true;
   return false;
 }

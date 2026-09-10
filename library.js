@@ -190,11 +190,20 @@ function bodyText(rec) {
   if (b == null) return '';
   if (typeof b === 'string') return b;
 
+  // A record may arrive FLATTENED rather than structured — the gateway's warm index stores
+  // `{ text }` for every kind, with no message list and no markdown. Falling through the
+  // kind-specific branches would project it to the empty string, which is worse than it
+  // sounds: the record is stored, listed and counted, but is invisible to search and shows
+  // an empty preview. So a flat `text` is honoured for any kind, and the structured
+  // extraction below wins whenever it actually finds something.
+  const flat = typeof b.text === 'string' ? b.text : '';
+
   if (rec.kind === 'chat') {
-    return (b.messages || [])
+    const turns = (b.messages || [])
       .filter((m) => m && m.content)
       .map((m) => `${ROLE_LABEL[m.role] || 'You'}: ${textOfContent(m.content)}`)
       .join('\n\n');
+    return turns || flat;
   }
   if (rec.kind === 'note') return str(b.markdown ?? b.text);
   if (rec.kind === 'meeting') {
@@ -202,13 +211,13 @@ function bodyText(rec) {
     const segs = (b.segments || [])
       .map((s) => `${str(s.speaker) || '?'}: ${str(s.text)}`)
       .join('\n');
-    return [notes, segs].filter(Boolean).join('\n\n');
+    return [notes, segs].filter(Boolean).join('\n\n') || flat;
   }
   if (rec.kind === 'brief') {
     const claims = (b.claims || []).map((c) => str(c.text)).filter(Boolean).join('\n');
-    return [str(b.summary), claims].filter(Boolean).join('\n\n');
+    return [str(b.summary), claims].filter(Boolean).join('\n\n') || flat;
   }
-  return '';
+  return flat;
 }
 
 /**

@@ -176,3 +176,28 @@ test('an index entry carries everything a list row draws and nothing that needs 
   assert.equal(e.words, 2);
   assert.equal(e.chars, 10);
 });
+
+// --------------------------------------------------------------------------
+// Flattened bodies
+// --------------------------------------------------------------------------
+
+test('a FLAT body projects for every kind — a warm record must not be invisible to search', () => {
+  // The gateway's warm index stores `{ text }` with no message list and no markdown.
+  // Falling through the structured branches stored the record but left it unsearchable
+  // with an empty preview, which reads as data loss.
+  for (const kind of ['chat', 'note', 'meeting', 'brief']) {
+    const text = searchTextFor(normalizeStoredRecord({
+      id: `${kind}:flat`, title: 'Flat', body: { text: 'the drain window is six hours' },
+    }));
+    assert.match(text, /drain window is six hours/, kind);
+  }
+});
+
+test('a structured body still wins over a flat one when both are present', () => {
+  const text = searchTextFor(normalizeStoredRecord({
+    id: 'chat:both', title: 'Both',
+    body: { text: 'FLAT COPY', messages: [{ role: 'user', content: 'STRUCTURED COPY' }] },
+  }));
+  assert.match(text, /STRUCTURED COPY/);
+  assert.doesNotMatch(text, /FLAT COPY/, 'the lossy copy must not be appended to the good one');
+});
