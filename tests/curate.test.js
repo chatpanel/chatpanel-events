@@ -309,3 +309,23 @@ test('a pathological corpus costs a truncated report, never a hung page', () => 
   assert.ok(ms < 5000, `a same-prefix corpus took ${ms}ms — the comparison budget is not holding`);
   assert.ok(Array.isArray(groups));
 });
+
+test('blocking spends the discriminating evidence first, or it finds nothing that matters', () => {
+  // The recall bug that blocking introduced: nine thousand titles all beginning the same way
+  // land in ONE bucket under the prefix key, and that single non-discriminating block spent
+  // the whole comparison budget before the buckets holding the real findings were reached.
+  // A small block is a specific one; working through them in size order is what fixes it.
+  const noise = Array.from({ length: 9000 }, (_, i) => rec(`n${i}`, { title: `Unrelated conversation ${i}` }));
+  const planted = [
+    rec('a1', { title: 'Atlas migration plan' }),
+    rec('a2', { title: 'Atals migration plan' }),
+    rec('b1', { title: 'Quarterly planning session' }),
+    rec('b2', { title: 'Quarterly planning sessoin' }),
+  ];
+  const t = Date.now();
+  const groups = duplicateTitles([...noise, ...planted]);
+  assert.ok(Date.now() - t < 5000, 'still has to be fast');
+  const found = (id) => groups.find((g) => g.ids.includes(id));
+  assert.ok(found('a1')?.ids.includes('a2'), 'a real duplicate must survive a corpus full of noise');
+  assert.ok(found('b1')?.ids.includes('b2'), 'and so must the second one');
+});

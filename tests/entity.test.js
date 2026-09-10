@@ -291,3 +291,30 @@ test('merges are proposed, never applied — and the noisy signals are left out'
   assert.deepEqual(suggestMerges(null), []);
   assert.equal(suggestMerges(subjects, { limit: 1 }).length, 1);
 });
+
+test('merge suggestions stay fast and keep their findings in a big corpus', () => {
+  // Pairwise did not finish 12,000 subjects in two minutes: 6.8s at 2,000, 32s at 6,000,
+  // 141s at 12,000 — on the UI thread, so a hung page rather than a slow one.
+  const noise = Array.from({ length: 9000 }, (_, i) => ({ kind: 'person', name: `Unrelated Person ${i}`, recordId: `r${i}` }));
+  const mentions = [
+    ...noise,
+    ...['a', 'b', 'c'].map((r) => ({ kind: 'person', name: 'Alex Rivera', recordId: r })),
+    { kind: 'person', name: 'A. Rivera', recordId: 'd' },
+    ...['e', 'f'].map((r) => ({ kind: 'topic', name: 'atlas migration', recordId: r })),
+    { kind: 'topic', name: 'atlas', recordId: 'g' },
+    { kind: 'topic', name: 'atals migration', recordId: 'h' },
+  ];
+  const subjects = resolveSubjects(mentions);
+  const t = Date.now();
+  const merges = suggestMerges(subjects);
+  const ms = Date.now() - t;
+  assert.ok(ms < 5000, `suggestMerges took ${ms}ms over ${subjects.size} subjects — that is a frozen tab`);
+
+  // …and the findings must SURVIVE the blocking. They did not at first: one bucket of nine
+  // thousand same-prefix names spent the entire budget before the real pairs were compared.
+  const pair = (drop) => merges.find((m) => m.dropName === drop);
+  assert.ok(pair('A. Rivera'), 'an abbreviated first name, found through the shared surname');
+  assert.equal(pair('A. Rivera').keepName, 'Alex Rivera');
+  assert.ok(pair('atlas'), 'a contained name');
+  assert.ok(pair('atals migration'), 'a transposed typo');
+});
