@@ -54,6 +54,11 @@ export {
 } from './knowledge.js';
 export { deriveBrief, deriveBriefs, driftedRefs } from './knowledge-derive.js';
 export {
+  SYNTHESIS_SCHEMA, synthesisPrompt, claimsFromSynthesis,
+  MAX_SYNTHESIS_CLAIMS, MAX_EXCERPTS, MAX_EXCERPT_CHARS,
+} from './synthesis.js';
+export { PROPOSAL_STATES, propose, accept, reject, diffProposal, converge } from './promotion.js';
+export {
   normalizeRecord, normalizeRecords, wikilinksIn, redactedTokensIn, redactionCost,
   wantedPages, orphanRecords,
   duplicateTitles, vocabularyDrift, mentionsFrom, spanningQuestions,
