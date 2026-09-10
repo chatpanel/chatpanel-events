@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  duplicateTitles, formatSurvey, mentionsFrom, normalizeRecord,
-  orphanRecords, spanningQuestions, surveyCorpus, thresholdSweep, vocabularyDrift,
+  duplicateTitles, formatSurvey, mentionsFrom, normalizeRecord, orphanRecords,
+  redactionCost, spanningQuestions, surveyCorpus, thresholdSweep, vocabularyDrift,
   wantedPages, wikilinksIn,
 } from '../curate.js';
 
@@ -223,4 +223,30 @@ test('the distance primitive lives on its own, not inside the feature that grew 
   const src = readFileSync(new URL('../curate.js', import.meta.url), 'utf8');
   assert.ok(!/from '\.\/voice-intents\.js'/.test(src), 'curate.js must not import voice-intents.js');
   assert.match(src, /from '\.\/distance\.js'/);
+});
+
+test('redaction placeholders are excluded from links and counted instead', () => {
+  const records = [
+    rec('c1', { type: 'chat', text: 'see [[Atlas]], [[PERSON_1]] and [[Q3_2026]]' }),
+    rec('c2', { type: 'chat', text: '[[PERSON_1]] and [[LOCATION_2]] again' }),
+    rec('n1', { title: 'Atlas', text: 'the real page' }),
+  ];
+  // A real link survives — matched by TYPE, so [[Q3_2026]] is not mistaken for a placeholder.
+  assert.deepEqual(wikilinksIn(records[0].text), ['Atlas', 'Q3_2026']);
+  // …and no placeholder becomes a wanted page.
+  assert.ok(!wantedPages(records).some((w) => /PERSON|LOCATION/.test(w.target)));
+  assert.ok(wantedPages(records).some((w) => w.target === 'Q3_2026'));
+
+  // The loss is REPORTED, not silent: only the user can decide their redaction level is
+  // costing them a connected graph.
+  const cost = redactionCost(records);
+  assert.equal(cost.total, 3);
+  assert.equal(cost.records, 2);
+  assert.deepEqual(cost.byType, { PERSON: 2, LOCATION: 1 });
+  assert.deepEqual(redactionCost([]), { total: 0, records: 0, byType: {} });
+
+  const report = surveyCorpus(records);
+  assert.equal(report.redaction.total, 3);
+  assert.match(formatSurvey(report), /REDACTED MENTIONS/);
+  assert.match(formatSurvey(report), /vault is per-conversation/);
 });
