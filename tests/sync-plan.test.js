@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   planSync, decide, stampOf, isSettled, forkConflict, advanceBases,
-  CLOCK_TOLERANCE_MS, SyncError,
+  CLOCK_TOLERANCE_MS, SyncError, fidelityOf,
 } from '../sync-plan.js';
 
 const T = 1_800_000_000_000;
@@ -126,4 +126,76 @@ test('advanceBases does not mutate the map it was given', () => {
   const after = advanceBases(before, [e('note:b', T)]);
   assert.equal(before.has('note:b'), false);
   assert.equal(after.has('note:b'), true);
+});
+
+// ---------------------------------------------------------------------------
+// Fidelity — a flattened stand-in must never win over the real record
+// ---------------------------------------------------------------------------
+
+test('fidelityOf reads the marks a warm copy is stamped with, on a record or a stamp row', () => {
+  assert.equal(fidelityOf({ id: 'a' }), 1, 'unmarked means complete');
+  assert.equal(fidelityOf({ id: 'a', lossy: true }), 0, 'a stamp row can say so directly');
+  assert.equal(fidelityOf({ id: 'a', meta: { lossy: true } }), 0);
+  assert.equal(fidelityOf({ id: 'a', meta: { origin: 'warm' } }), 0);
+  assert.equal(fidelityOf({ id: 'a', meta: { origin: 'extension' } }), 1);
+  assert.equal(fidelityOf(null), 0);
+});
+
+test('THE BUG: a complete record is pulled over a lossy one with the SAME timestamp', () => {
+  // The two describe the same moment, so last-write-wins called them equal and answered
+  // 'none' — a restored backup silently refused in favour of the search-index copy.
+  const at = 1_700_000_000_000;
+  const warm = { id: 'chat:1', updatedAt: at, meta: { origin: 'warm' } };
+  const full = { id: 'chat:1', updatedAt: at, meta: { origin: 'extension' } };
+  assert.equal(decide(warm, full), 'pull');
+});
+
+test('a lossy remote NEVER overwrites a complete local, even when it is newer', () => {
+  const full = { id: 'chat:1', updatedAt: 1000, meta: { origin: 'extension' } };
+  const warmerButLossy = { id: 'chat:1', updatedAt: 999_000, meta: { lossy: true } };
+  assert.equal(decide(full, warmerButLossy), 'push');
+});
+
+test('a complete record wins even when the lossy one is much newer', () => {
+  const warm = { id: 'chat:1', updatedAt: 999_000, meta: { origin: 'warm' } };
+  const full = { id: 'chat:1', updatedAt: 1000, meta: { origin: 'extension' } };
+  assert.equal(decide(warm, full), 'pull');
+});
+
+test('between two records of the SAME fidelity, the clocks still decide', () => {
+  const a = { id: 'x', updatedAt: 5000, meta: { origin: 'warm' } };
+  const b = { id: 'x', updatedAt: 9000, meta: { origin: 'warm' } };
+  assert.equal(decide(a, b), 'pull');
+  assert.equal(decide(b, a), 'push');
+  assert.equal(decide(a, { ...a }), 'none');
+});
+
+test('DELETIONS ARE EXEMPT — fidelity must never resurrect a tombstone', () => {
+  // A tombstone has no body, so it looks lossy by any measure. If fidelity outranked the
+  // stamps here, every deleted record would come back the moment a fuller copy existed.
+  const tombstone = { id: 'chat:1', updatedAt: 9000, deletedAt: 9000 };
+  const older = { id: 'chat:1', updatedAt: 1000, meta: { origin: 'extension' } };
+  assert.equal(decide(tombstone, older), 'push', 'the deletion still wins on its stamp');
+
+  // ...and a newer deletion on the remote side is still pulled.
+  const liveLocal = { id: 'chat:1', updatedAt: 1000, meta: { origin: 'extension' } };
+  const remoteTomb = { id: 'chat:1', updatedAt: 9000, deletedAt: 9000 };
+  assert.equal(decide(liveLocal, remoteTomb), 'pull');
+});
+
+test('a whole plan pulls every lossy id the complete side can replace', () => {
+  const local = [
+    { id: 'chat:1', updatedAt: 500, lossy: true },
+    { id: 'chat:2', updatedAt: 500, lossy: true },
+    { id: 'note:9', updatedAt: 500 },
+  ];
+  const remote = [
+    { id: 'chat:1', updatedAt: 500 },
+    { id: 'chat:2', updatedAt: 500 },
+    { id: 'note:9', updatedAt: 500 },
+  ];
+  const plan = planSync(local, remote);
+  assert.deepEqual(plan.pull.sort(), ['chat:1', 'chat:2'], 'both flattened chats are replaced');
+  assert.equal(plan.unchanged, 1, 'and an equal, equally-complete record is left alone');
+  assert.equal(plan.push.length, 0);
 });

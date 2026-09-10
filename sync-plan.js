@@ -64,6 +64,25 @@ function indexById(entries) {
  *   'push'     — local is newer, or remote has never seen it; send ours
  *   'conflict' — both changed since the last common state and neither is clearly newer
  */
+/**
+ * Is this entry the COMPLETE record, or a flattened stand-in for one?
+ *
+ * A warm/indexed copy of a chat is its transcript as one blob of text: enough to search,
+ * read and cite, and not enough to open as a conversation. Callers stamp that with
+ * `meta.lossy` (or `meta.origin: 'warm'`); a stamp row may carry `lossy` directly, because a
+ * sync plan works on stamps and should not have to load bodies to make this decision.
+ *
+ * Returns 1 for full fidelity and 0 for lossy — an ordering, so the rule below is a
+ * comparison rather than a pile of branches.
+ */
+export function fidelityOf(entry) {
+  if (!entry) return 0;
+  if (entry.lossy === true) return 0;
+  const meta = entry.meta || null;
+  if (meta && (meta.lossy === true || meta.origin === 'warm')) return 0;
+  return 1;
+}
+
 export function decide(local, remote, { tolerance = CLOCK_TOLERANCE_MS, base = null } = {}) {
   if (!local && !remote) return 'none';
   if (!remote) return 'push';
@@ -71,6 +90,30 @@ export function decide(local, remote, { tolerance = CLOCK_TOLERANCE_MS, base = n
 
   const l = stampOf(local);
   const r = stampOf(remote);
+
+  // FIDELITY BEATS RECENCY, BOTH WAYS.
+  //
+  // The two sides are not always describing the same kind of thing. One may hold the whole
+  // record and the other a flattened stand-in for it — and those two arrive with the SAME
+  // timestamp, because they describe the same moment. Last-write-wins then reads them as
+  // equal and answers 'none', which is how a complete conversation restored from a backup
+  // gets silently refused in favour of a search-index summary of itself that is already
+  // there. The user restores, is told it worked, and still sees the flattened copy.
+  //
+  // So a complete record always wins over a partial one whatever the clocks say. The
+  // converse — never let a partial overwrite a complete one — is the same rule read the
+  // other way, and it is the one callers usually remember to enforce by hand.
+  //
+  // DELETIONS ARE EXEMPT. A tombstone carries no body, so it is 'lossy' by any measure, and
+  // resurrecting deleted records because their replacement looks fuller would be a far worse
+  // bug than the one this fixes. When either side is deleted, the stamps decide.
+  const deleted = num(local.deletedAt) > 0 || num(remote.deletedAt) > 0;
+  if (!deleted) {
+    const lf = fidelityOf(local);
+    const rf = fidelityOf(remote);
+    if (lf !== rf) return rf > lf ? 'pull' : 'push';
+  }
+
   const delta = l - r;
   if (Math.abs(delta) <= tolerance) return 'none';
 
