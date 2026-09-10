@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseFlowchart, renderFlowchartSvg } from '../flowchart.js';
+import { parseFlowchart, layoutFlowchart, renderFlowchartSvg } from '../flowchart.js';
 
 const SRC = `flowchart TB
     ROOT["Startup anti-patterns"]
@@ -89,4 +89,100 @@ test('a normal-shaped chart is left in the direction the author asked for', () =
   const src = 'flowchart TB\n A["a"] --> B["b"]\n A --> C["c"]';
   const d = renderFlowchartSvg(src).match(/width="(\d+)" height="(\d+)"/);
   assert.ok(+d[2] > +d[1] * 0.4, 'still a top-down shape, not flipped');
+});
+
+test('a bidirectional link is one edge with a head at both ends, not a node called "A <"', () => {
+  const g = parseFlowchart('flowchart TB\n API["api"] <--> ETCD["etcd"]');
+  assert.equal(g.nodes.size, 2, 'the `<` did not become part of a node id');
+  assert.deepEqual([...g.nodes.keys()], ['API', 'ETCD']);
+  assert.equal(g.edges.length, 1);
+  assert.equal(g.edges[0].both, true);
+  const svg = renderFlowchartSvg('flowchart TB\n API["api"] <--> ETCD["etcd"]');
+  assert.match(svg, /marker-start="url\(#a\)"/, 'drawn with a head at the start too');
+});
+
+test('the other arrow bodies models emit are connectors, not text', () => {
+  for (const op of ['-->', '---', '-.->', '==>', '===>', '--o', '--x', '<-.->', '<==>']) {
+    const g = parseFlowchart(`flowchart LR\n A["a"] ${op} B["b"]`);
+    assert.equal(g.nodes.size, 2, `${op} splits the line`);
+    assert.equal(g.edges.length, 1, `${op} makes one edge`);
+  }
+});
+
+test('a label carried mid-line (A -- yes --> B) belongs to the edge', () => {
+  const g = parseFlowchart('flowchart LR\n A["a"] -- yes --> B["b"]');
+  assert.equal(g.nodes.size, 2);
+  assert.equal(g.edges.length, 1);
+  assert.equal(g.edges[0].label, 'yes');
+});
+
+test('the bracket shapes keep their own brackets out of the label', () => {
+  const g = parseFlowchart([
+    'flowchart TB',
+    ' DB[("the store")] --> C(("circle"))',
+    ' C --> S(["stadium"])',
+    ' S --> H{{"hex"}}',
+    ' H --> R[["sub"]]',
+  ].join('\n'));
+  assert.equal(g.nodes.get('DB').label, 'the store', 'a [( )] node is not left with a stray )');
+  assert.equal(g.nodes.get('C').label, 'circle');
+  assert.equal(g.nodes.get('S').label, 'stadium');
+  assert.equal(g.nodes.get('H').label, 'hex');
+  assert.equal(g.nodes.get('R').label, 'sub');
+});
+
+test('inline emphasis is drawn as emphasis, not printed as tags', () => {
+  const svg = renderFlowchartSvg('flowchart TB\n A["kubelet<br/><i>node agent</i>"] --> B["b"]');
+  assert.ok(!svg.includes('&lt;i&gt;'), 'the tag itself is gone');
+  assert.match(svg, /font-style="italic"[^>]*>node agent</, 'and the line it wrapped is italic');
+  const bold = renderFlowchartSvg('flowchart TB\n A["<b>heads up</b>"] --> B["b"]');
+  assert.match(bold, /font-weight="700"[^>]*>heads up</);
+});
+
+test('unknown markup in a label is kept and escaped, never silently dropped', () => {
+  const svg = renderFlowchartSvg('flowchart TB\n A["<script>x</script>"] --> B["b"]');
+  assert.ok(!/<script>/.test(svg), 'never live');
+  assert.ok(svg.includes('&lt;script&gt;'), 'shown as the text the model wrote');
+});
+
+test('subgraphs are drawn as frames, and their members stay inside them', () => {
+  const src = [
+    'flowchart TB',
+    '  subgraph CP["Control Plane"]',
+    '    API["kube-apiserver"]',
+    '    SCHED["kube-scheduler"]',
+    '    SCHED --> API',
+    '  end',
+    '  subgraph N1["Worker Node"]',
+    '    KL["kubelet"]',
+    '    KP["kube-proxy"]',
+    '    POD["pods"]',
+    '    KL --> POD',
+    '  end',
+    '  API --> KL',
+  ].join('\n');
+  const g = parseFlowchart(src);
+  assert.equal(g.groups.length, 2);
+  assert.deepEqual(g.groups[0].members, ['API', 'SCHED']);
+  assert.deepEqual(g.groups[1].members, ['KL', 'KP', 'POD']);
+
+  const svg = renderFlowchartSvg(src);
+  assert.ok(svg.includes('>Control Plane<') && svg.includes('>Worker Node<'), 'both frames are titled');
+  assert.match(svg, /stroke-dasharray="5 4"/, 'the frame is drawn');
+
+  // The point of clustering: a member with no edges of its own (kube-proxy) sits with its
+  // group rather than drifting to rank 0 among strangers, which is what flattening did.
+  const boxes = layoutFlowchart(g);
+  const frame = boxes.clusters.find((c) => c.title === 'Worker Node');
+  for (const id of ['KL', 'KP', 'POD']) {
+    const b = boxes.boxes.get(id);
+    assert.ok(b.x >= frame.x && b.x + b.w <= frame.x + frame.w, `${id} is inside its frame horizontally`);
+    assert.ok(b.y >= frame.y && b.y + b.h <= frame.y + frame.h, `${id} is inside its frame vertically`);
+  }
+});
+
+test('a chart with no subgraphs is laid out exactly as before', () => {
+  const g = parseFlowchart('flowchart TB\n A["a"] --> B["b"]');
+  assert.deepEqual(g.groups, [], 'no groups, so the clustered path is never taken');
+  assert.equal(layoutFlowchart(g).clusters.length, 0);
 });
