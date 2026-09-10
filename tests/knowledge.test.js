@@ -188,3 +188,15 @@ test('the text form round-trips — an agent over MCP gets structure, not a blob
   assert.equal(parseBriefText('MEETING: not a brief'), null, 'a record that is not a brief is null, not an empty brief');
   assert.equal(parseBriefText(''), null);
 });
+
+test('briefToText survives a brief from a FILE, not only one its deriver just built', () => {
+  // Briefs now arrive in backups, written by whatever build made them. A missing collection
+  // is an older shape, not a bug to crash on — and crashing here took the whole brief
+  // section of a restore with it.
+  const minimal = { id: 'b1', kind: 'person', subject: { name: 'Alex Rivera' }, claims: [] };
+  assert.match(briefToText(minimal), /BRIEF: Alex Rivera/);
+  assert.match(briefToText({ ...minimal, claims: [{ text: 'Leads platform.' }] }), /Leads platform\./);
+  assert.equal(briefToText({ ...minimal, subject: {} }), '', 'no subject name is nothing to say');
+  assert.equal(briefToText(null), '');
+  assert.equal(briefToText({}), '');
+});
