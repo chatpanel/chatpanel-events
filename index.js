@@ -50,7 +50,7 @@ export {
 } from './entity.js';
 export {
   BRIEF_STATES, CLAIM_KINDS, MAX_CLAIMS, MAX_CLAIM_REFS, MAX_BRIEF_RECORDS, MAX_BRIEF_CHARS,
-  contentHash, briefId, briefToText, briefTerms, checkKnowledgeInvariants,
+  contentHash, briefId, briefToText, briefTerms, checkKnowledgeInvariants, parseBriefText,
 } from './knowledge.js';
 export { deriveBrief, deriveBriefs, driftedRefs } from './knowledge-derive.js';
 export {

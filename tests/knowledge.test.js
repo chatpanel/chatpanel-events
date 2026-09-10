@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  MAX_CLAIMS, briefId, briefTerms, briefToText, checkKnowledgeInvariants, contentHash,
+  MAX_CLAIMS, briefId, briefTerms, briefToText, checkKnowledgeInvariants, contentHash, parseBriefText,
 } from '../knowledge.js';
 import { deriveBriefs, driftedRefs } from '../knowledge-derive.js';
 
@@ -164,4 +164,27 @@ test('the model half does not drag the derivation half onto a service worker', (
   const src = readFileSync(new URL('../knowledge.js', import.meta.url), 'utf8');
   assert.ok(!/from '\.\/curate\.js'/.test(src), 'knowledge.js must not import curate.js');
   assert.ok(!/from '\.\/knowledge-derive\.js'/.test(src), 'the model must not import the pass');
+});
+
+test('the text form round-trips — an agent over MCP gets structure, not a blob', () => {
+  // The warm store holds { id, title, type, date, text } and nothing else, so a brief's
+  // claims and refs cross to the gateway only through the text. That makes the text a
+  // grammar this module owns at both ends, and this is the test that keeps it one.
+  const brief = deriveBriefs(corpus(), {
+    memories: [{ id: 'mem1', kind: 'fact', text: 'Alex Rivera owns the Atlas rollback plan.', updatedAt: NOW }],
+    now: NOW,
+  }).find((b) => b.kind === 'person');
+  const parsed = parseBriefText(briefToText(brief));
+  assert.equal(parsed.name, 'Alex Rivera');
+  assert.deepEqual(parsed.aliases, ['alex']);
+  assert.equal(parsed.kind, 'person');
+  assert.equal(parsed.claims.length, brief.claims.length);
+  for (let i = 0; i < brief.claims.length; i += 1) {
+    assert.equal(parsed.claims[i].text, brief.claims[i].text);
+    assert.deepEqual(parsed.claims[i].refs, brief.claims[i].refs.map((r) => ({ kind: r.kind, id: r.id })));
+  }
+  assert.ok(parsed.claims.some((c) => c.refs.some((r) => r.kind === 'memory')), 'a stated claim keeps its memory ref');
+  assert.ok(parsed.records.length > 0);
+  assert.equal(parseBriefText('MEETING: not a brief'), null, 'a record that is not a brief is null, not an empty brief');
+  assert.equal(parseBriefText(''), null);
 });
