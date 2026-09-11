@@ -18,6 +18,9 @@ export {
 export { REF_KINDS, RESOLUTION, makeRef, isRef, resolveRef } from './ref.js';
 export { linearize, compareEvents, causesAreWellFormed } from './order.js';
 export { pendingQueue, isQueued, dequeue, moveQueued, promoteQueued } from './queue.js';
+export {
+  groupModels, filterSections, defaultModelId, modelSummary,
+} from './model-picker.js';
 export { REACH, reachRank, reachSatisfies } from './reach.js';
 export { UPCASTERS, upcast, upcastAll } from './upcast.js';
 export {
