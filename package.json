@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.59.0",
+  "version": "0.60.0",
   "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
@@ -83,6 +83,7 @@
     "./view.js": "./view.js",
     "./voice-intents.js": "./voice-intents.js",
     "./weather.js": "./weather.js",
+    "./web-search.js": "./web-search.js",
     "./widget.js": "./widget.js"
   },
   "files": [
@@ -165,6 +166,7 @@
     "view.js",
     "voice-intents.js",
     "weather.js",
+    "web-search.js",
     "widget.js"
   ],
   "scripts": {
