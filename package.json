@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.55.0",
+  "version": "0.56.0",
   "description": "The canonical ChatPanel event-log and capability contracts — typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
@@ -34,6 +34,7 @@
     "./meeting-text.js": "./meeting-text.js",
     "./memory.js": "./memory.js",
     "./model-picker.js": "./model-picker.js",
+    "./note-actions.js": "./note-actions.js",
     "./observability.js": "./observability.js",
     "./omni.js": "./omni.js",
     "./order.js": "./order.js",
@@ -108,6 +109,7 @@
     "meeting-text.js",
     "memory.js",
     "model-picker.js",
+    "note-actions.js",
     "observability.js",
     "omni.js",
     "order.js",

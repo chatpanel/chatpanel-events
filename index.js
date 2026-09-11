@@ -21,6 +21,12 @@ export { pendingQueue, isQueued, dequeue, moveQueued, promoteQueued } from './qu
 export {
   groupModels, filterSections, defaultModelId, modelSummary,
 } from './model-picker.js';
+export {
+  NOTE_ACTIONS, NOTE_ACTION_ORDER, NOTE_ACTION_TEMPERATURE, NOTE_ACTION_ERRORS,
+  NOTE_COMMANDS, NOTE_COMMAND_TEMPERATURE, NOTE_COMMAND_MAX_TOKENS,
+  frameNoteAction, noteActionLabel, noteActionItems, filterNoteActions,
+  commandLineAt, triggerQueryAt,
+} from './note-actions.js';
 export { REACH, reachRank, reachSatisfies } from './reach.js';
 export { UPCASTERS, upcast, upcastAll } from './upcast.js';
 export {
