@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.58.0",
+  "version": "0.59.0",
   "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
@@ -11,6 +11,7 @@
     "./backup-envelope.js": "./backup-envelope.js",
     "./capability.js": "./capability.js",
     "./citations.js": "./citations.js",
+    "./cowriter-router.js": "./cowriter-router.js",
     "./cowriter.js": "./cowriter.js",
     "./curate.js": "./curate.js",
     "./distance.js": "./distance.js",
@@ -91,6 +92,7 @@
     "backup-envelope.js",
     "capability.js",
     "citations.js",
+    "cowriter-router.js",
     "cowriter.js",
     "curate.js",
     "distance.js",
