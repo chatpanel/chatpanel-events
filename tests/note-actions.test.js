@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   NOTE_ACTIONS, NOTE_ACTION_ORDER, NOTE_COMMANDS, frameNoteAction, noteActionLabel,
-  commandLineAt, triggerQueryAt, filterNoteActions, noteActionItems,
+  commandLineAt, triggerQueryAt, filterNoteActions, noteActionItems, noteCommandContext,
+  groundedInstruction, NOTE_CONTEXT_MAX_CHARS,
 } from '../note-actions.js';
 
 const NOTE = '# Plan\n\nFirst point.\nSecond point.';
@@ -97,4 +98,25 @@ test('palette items carry no runner, and filter by key prefix or label substring
   assert.deepEqual(filterNoteActions(items, 'WRIT').map((i) => i.key), ['continue', 'improve']);
   assert.equal(filterNoteActions(items, '').length, 4);
   assert.deepEqual(noteActionItems(['tasks', 'nope']).map((i) => i.key), ['tasks']);
+});
+
+test('a command carries the note it sits in, so "summarize above" has an above', () => {
+  const text = '| a | b |\n|---|---|\n| 1 | 2 |\n\n@summarize above\n\nTrailing.';
+  const cmd = commandLineAt(text, text.indexOf('@summarize') + 3);
+  const ctx = noteCommandContext(text.slice(0, cmd.start), text.slice(cmd.end), { title: 'Deck' });
+  assert.match(ctx, /title: "Deck"/);
+  assert.match(ctx, /\| 1 \| 2 \|/, 'the table above the command is in the context');
+  assert.match(ctx, /Trailing\./, 'so is the text below it');
+  assert.doesNotMatch(ctx, /@summarize/, 'the command line itself is not — it is the ask, not the note');
+  const user = groundedInstruction(cmd.instruction, ctx);
+  assert.ok(user.startsWith(ctx));
+  assert.ok(user.endsWith('---\nInstruction: above'));
+});
+
+test('an empty note grounds nothing, and a long one is capped', () => {
+  assert.equal(noteCommandContext('', '\n\n'), '');
+  assert.equal(groundedInstruction('do it', ''), 'do it');
+  const ctx = noteCommandContext('x'.repeat(NOTE_CONTEXT_MAX_CHARS + 500), '');
+  assert.match(ctx, /…\(note truncated\)/);
+  assert.ok(ctx.length < NOTE_CONTEXT_MAX_CHARS + 400);
 });
