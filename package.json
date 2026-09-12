@@ -1,7 +1,7 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.63.0",
-  "description": "The canonical ChatPanel event-log and capability contracts — typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
+  "version": "0.64.0",
+  "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -33,8 +33,10 @@
     "./mcp-errors.js": "./mcp-errors.js",
     "./media-transcript.js": "./media-transcript.js",
     "./meeting-analyzers.js": "./meeting-analyzers.js",
+    "./meeting-shape.js": "./meeting-shape.js",
     "./meeting-text.js": "./meeting-text.js",
     "./memory.js": "./memory.js",
+    "./model-candidates.js": "./model-candidates.js",
     "./model-picker.js": "./model-picker.js",
     "./note-actions.js": "./note-actions.js",
     "./note-graph.js": "./note-graph.js",
@@ -53,6 +55,7 @@
     "./ref.js": "./ref.js",
     "./registry.js": "./registry.js",
     "./route-graph.js": "./route-graph.js",
+    "./route-strategies.js": "./route-strategies.js",
     "./router.js": "./router.js",
     "./rrf.js": "./rrf.js",
     "./rules.js": "./rules.js",
@@ -82,12 +85,10 @@
     "./vault.js": "./vault.js",
     "./view.js": "./view.js",
     "./voice-intents.js": "./voice-intents.js",
+    "./voice-speaker.js": "./voice-speaker.js",
     "./weather.js": "./weather.js",
     "./web-search.js": "./web-search.js",
-    "./widget.js": "./widget.js",
-    "./model-candidates.js": "./model-candidates.js",
-    "./route-strategies.js": "./route-strategies.js",
-    "./voice-speaker.js": "./voice-speaker.js"
+    "./widget.js": "./widget.js"
   },
   "files": [
     "LICENSE",
@@ -119,6 +120,7 @@
     "mcp-errors.js",
     "media-transcript.js",
     "meeting-analyzers.js",
+    "meeting-shape.js",
     "meeting-text.js",
     "memory.js",
     "model-picker.js",

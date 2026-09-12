@@ -87,49 +87,8 @@ export function parseMeetingText(text) {
   return out;
 }
 
-/**
- * Who spoke, and how much — the shape of the meeting rather than its content.
- *
- * Ordered by line count, because "who ran this meeting" is usually the first thing someone
- * wants from a transcript they did not attend.
- */
-export function speakerStats(meeting) {
-  const by = new Map();
-  for (const s of meeting?.segments || []) {
-    const prev = by.get(s.speaker) || { speaker: s.speaker, lines: 0, chars: 0 };
-    prev.lines += 1;
-    prev.chars += s.text.length;
-    by.set(s.speaker, prev);
-  }
-  const total = [...by.values()].reduce((n, s) => n + s.chars, 0) || 1;
-  return [...by.values()]
-    .map((s) => ({ ...s, share: s.chars / total }))
-    .sort((a, b) => b.chars - a.chars);
-}
-
-/**
- * The meeting as one ribbon of who-spoke-when.
- *
- * `buckets` slices the transcript by POSITION rather than by clock: the timestamps are
- * display strings from the capture ("6:28:00 PM"), not durations, and parsing them into a
- * timeline would be guessing at a date, a timezone and whether the meeting crossed midnight.
- * Position is honest about being an approximation of pace.
- */
-export function densityRibbon(meeting, buckets = 40) {
-  const segs = meeting?.segments || [];
-  if (!segs.length) return [];
-  const out = [];
-  const per = segs.length / buckets;
-  for (let b = 0; b < buckets; b += 1) {
-    const from = Math.floor(b * per);
-    const to = Math.max(from + 1, Math.floor((b + 1) * per));
-    const slice = segs.slice(from, to);
-    if (!slice.length) { out.push({ speaker: '', weight: 0 }); continue; }
-    const by = new Map();
-    for (const s of slice) by.set(s.speaker, (by.get(s.speaker) || 0) + s.text.length);
-    const [speaker, chars] = [...by.entries()].sort((a, b2) => b2[1] - a[1])[0];
-    out.push({ speaker, weight: chars });
-  }
-  const max = Math.max(...out.map((o) => o.weight), 1);
-  return out.map((o) => ({ ...o, weight: o.weight / max }));
-}
+// The shape analysis — who spoke, when, for how long — lives in `meeting-shape.js` so the
+// clients that never read the text form can have it without the parser. Re-exported here
+// because these two names were part of this module before that split, and the desktop
+// meeting pane imports them from this path.
+export { speakerStats, densityRibbon } from './meeting-shape.js';
