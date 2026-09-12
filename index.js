@@ -273,3 +273,6 @@ export { renderMarkdown, defaultLinkPolicy } from './markdown-render.js';
 // extension writes and MCP reads, so every client shows one transcript, not three.
 export { parseMeetingText, speakerStats, densityRibbon } from './meeting-text.js';
 export { speakerBreakdown, speakerTimeline, formatTalkTime, SPEAKER_SLOTS } from './meeting-shape.js';
+// A list of records as a person reads it, and what a meeting settled — both read, never derived.
+export { SORT_MODES, SORT_LABELS, sortStamp, sortRecords, filterRecords, dayBucket, rowTime, groupRecords } from './record-list.js';
+export { INSIGHT_KINDS, summarySections, insightKindOf, meetingInsights, hasInsights } from './meeting-insights.js';
