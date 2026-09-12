@@ -51,3 +51,17 @@ test('an explanation still works without a package name', () => {
   const e = explainMcpError(SHEBANG);
   assert.match(e.summary, /This MCP server/);
 });
+
+test('a stale session is recognised across transports', async () => {
+  const { isStaleMcpSession } = await import('../mcp-errors.js');
+  // Streamable HTTP: the server restarted and forgot the Mcp-Session-Id — 404 per spec.
+  assert.equal(isStaleMcpSession('MCP HTTP 404: Session not found'), true);
+  assert.equal(isStaleMcpSession('', { status: 404 }), true);
+  // stdio, Python SDK wording; and the JSON-RPC code the TypeScript SDK uses.
+  assert.equal(isStaleMcpSession('MCP error -32002: Received request before initialization was complete'), true);
+  assert.equal(isStaleMcpSession('Server not initialized'), true);
+  // Things that are NOT a stale session, and must not trigger a reconnect loop.
+  assert.equal(isStaleMcpSession('MCP error -32602: Invalid request parameters'), false);
+  assert.equal(isStaleMcpSession('MCP HTTP 500: upstream timeout'), false);
+  assert.equal(isStaleMcpSession(''), false);
+});
