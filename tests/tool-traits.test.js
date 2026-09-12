@@ -63,3 +63,43 @@ test('traitsIndex covers every named spec', () => {
   assert.equal(idx.get('get_a').readOnly, true);
   assert.equal(idx.get('delete_b').destructive, true);
 });
+
+test('the destructive gate asks on the real action, remembers "always", refuses with nobody to ask', async () => {
+  const { withDestructiveGate } = await import('../tool-traits.js');
+  const ran = [];
+  const toolset = {
+    specs: [{ name: 'mcp', description: 'd', parameters: {} }, { name: 'page', description: 'p', parameters: {} }, { name: 'delete_note', description: 'x', parameters: {} }],
+    remoteTools: new Set(['mcp']),
+    traits: new Map([['mcp_gh__delete_repo', { readOnly: false, destructive: true }], ['mcp_gh__get_repo', { readOnly: true, destructive: false }]]),
+    async execute(name, input) { ran.push(`${name}:${input?.action || ''}`); return 'ok'; },
+  };
+  const asked = [];
+  let answer = 'deny';
+  const gated = withDestructiveGate(toolset, { confirm: async (q) => { asked.push(q); return answer; }, only: (n) => toolset.remoteTools.has(n) });
+  // A read through the dispatcher is never asked about.
+  assert.equal(await gated.execute('mcp', { action: 'mcp_gh__get_repo', args: {} }), 'ok');
+  assert.equal(asked.length, 0);
+  // A destructive action is asked about on ITS name, with the dispatcher named as the route.
+  const denied = JSON.parse(await gated.execute('mcp', { action: 'mcp_gh__delete_repo', args: { repo: 'r' } }));
+  assert.equal(denied.declined, true);
+  assert.match(denied.error, /DECLINED "mcp_gh__delete_repo"/);
+  assert.equal(asked[0].name, 'mcp_gh__delete_repo');
+  assert.equal(asked[0].via, 'mcp');
+  assert.deepEqual(ran, ['mcp:mcp_gh__get_repo'], 'a declined call never reaches the tool');
+  // "always" runs it now and stops asking for that tool.
+  answer = 'always';
+  assert.equal(await gated.execute('mcp', { action: 'mcp_gh__delete_repo', args: {} }), 'ok');
+  assert.equal(await gated.execute('mcp', { action: 'mcp_gh__delete_repo', args: {} }), 'ok');
+  assert.equal(asked.length, 2, 'asked once more, then remembered');
+  // A tool outside `only` is untouched even though its name is destructive.
+  assert.equal(await gated.execute('delete_note', {}), 'ok');
+  assert.equal(asked.length, 2);
+  // No confirm handle: refused, with a message that says why and what to do.
+  const blind = withDestructiveGate(toolset, { only: (n) => toolset.remoteTools.has(n) });
+  const refused = JSON.parse(await blind.execute('mcp', { action: 'mcp_gh__delete_repo', args: {} }));
+  assert.equal(refused.needsConfirmation, true);
+  assert.match(refused.error, /cannot ask/);
+  // A top-level spec is classified by its own annotations.
+  const flat = withDestructiveGate({ specs: [{ name: 'mcp_x__wipe', annotations: { readOnlyHint: false, destructiveHint: true } }], async execute() { return 'ok'; } }, { confirm: async () => 'deny' });
+  assert.match(await flat.execute('mcp_x__wipe', {}), /DECLINED/);
+});
