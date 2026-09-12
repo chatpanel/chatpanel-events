@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.69.0",
+  "version": "0.69.1",
   "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
@@ -105,7 +105,8 @@
     "./tool-hints.js": "./tool-hints.js",
     "./adaptive-tool-policy.js": "./adaptive-tool-policy.js",
     "./mcp-client.js": "./mcp-client.js",
-    "./mcp-manager.js": "./mcp-manager.js"
+    "./mcp-manager.js": "./mcp-manager.js",
+    "./weather-tool.js": "./weather-tool.js"
   },
   "files": [
     "LICENSE",
@@ -203,6 +204,7 @@
     "vault.js",
     "view.js",
     "voice-intents.js",
+    "weather-tool.js",
     "weather.js",
     "web-search-tool.js",
     "web-search.js",
