@@ -244,11 +244,21 @@ export function wordCount(text) {
   return t ? t.split(/\s+/).length : 0;
 }
 
+/**
+ * Header lines the warm text form carries under its title — `Date: …`, `Platform: meet` —
+ * which are metadata, not the preview a row wants. A row already shows the date; a snippet
+ * that repeats it says nothing. `You:` / a speaker's name are NOT in this set on purpose:
+ * those lines are the content.
+ */
+const META_LINE_RE = /^(Date|Platform|Model|Agent|Tags|Source|Kind|Created|Updated|Started|Ended|Duration|Participants|Attendees|URL|Link):\s/i;
+
 /** A short preview for a list row, so a list renders without opening every body. */
 export function snippetOf(text, max = 110) {
-  const b = str(text);
-  const nl = b.indexOf('\n');
-  const rest = nl >= 0 ? b.slice(nl + 1) : b;
+  const lines = str(text).split('\n');
+  if (lines.length === 1) return lines[0].replace(/[#*_`>~]+/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
+  let i = 1; // the first line is the title
+  while (i < lines.length && (!lines[i].trim() || META_LINE_RE.test(lines[i].trim()))) i += 1;
+  const rest = lines.slice(i).join('\n');
   return rest.replace(/[#*_`>~]+/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 

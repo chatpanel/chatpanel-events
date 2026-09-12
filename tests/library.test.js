@@ -163,6 +163,10 @@ test('an empty body falls back rather than producing an empty title', () => {
 
 test('a snippet skips the first line, because that line is already the title', () => {
   assert.equal(snippetOf('# Title\nthe body continues'), 'the body continues');
+  // The warm text form's header lines are metadata the row already shows, not the preview.
+  assert.equal(snippetOf('CHAT: weather\nDate: 9/12/2026, 7:33 AM\nPlatform: meet\n\nYou: how is the weather\nAssistant: sunny'), 'You: how is the weather Assistant: sunny');
+  assert.equal(snippetOf('MEETING: sync\nDate: 9/10/2026\n\nSUMMARY:\nDecided Friday.'), 'SUMMARY: Decided Friday.');
+  assert.equal(snippetOf('one line only'), 'one line only', 'a one-line body is its own preview');
 });
 
 test('word count is one rule, so two surfaces cannot disagree', () => {
