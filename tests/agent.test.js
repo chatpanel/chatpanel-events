@@ -141,3 +141,18 @@ test('the editor’s forms: an agent from text fields, a team role that names an
   assert.equal(t.ok, true); assert.equal(t.team.roles[0].agent, 'fact-checker'); assert.equal(t.team.roles[0].grants, undefined);
   assert.deepEqual(poolFor([{ id: 'a', appliesTo: ['notes'] }, { id: 'b' }, { id: 'c', enabled: false }]).map((a) => a.id), ['b']);
 });
+
+test('the team tool fills a team from the pool on the way to a run, and says so when an agent is missing', async () => {
+  const { teamToolProvider, TEAM_TOOL_NAME } = await import('../team-tool.js');
+  const pool = [{ id: 'researcher', prompt: 'Research.', grants: ['web'] }];
+  const team = { name: 'r', roles: [{ id: 'r', agent: 'researcher' }], budget: { tokens: 100 } };
+  let ranWith = null;
+  const p = teamToolProvider({ teams: [team], appoint: () => ({ model: 'm', mode: 'model' }), resolve: (t) => resolveTeam(t, pool), run: async ({ team: t }) => { ranWith = t; return { runId: 'x', status: 'completed', board: [], tasks: [] }; } });
+  const dry = JSON.parse((await p.execute(TEAM_TOOL_NAME, { action: 'dry_run', name: 'r' })).content?.[0]?.text || (await p.execute(TEAM_TOOL_NAME, { action: 'dry_run', name: 'r' })));
+  assert.equal(dry.ok, true);
+  await p.execute(TEAM_TOOL_NAME, { action: 'run', name: 'r', request: 'go' });
+  assert.equal(ranWith.roles[0].prompt, 'Research.');
+  const p2 = teamToolProvider({ teams: [team], appoint: () => ({ model: 'm', mode: 'model' }), resolve: (t) => resolveTeam(t, []) });
+  const out = await p2.execute(TEAM_TOOL_NAME, { action: 'dry_run', name: 'r' });
+  assert.match(JSON.stringify(out), /not in the pool/);
+});
