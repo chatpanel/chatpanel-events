@@ -189,6 +189,14 @@ export { WEB_SEARCH_TOOL_NAME, WEB_SEARCH_TOOL_SYSTEM, WEB_SEARCH_SPEC, searchRe
 export { compressToolSpec, compressToolSpecs, compressionStats, trimDescription, COMPRESSION_MODES, DEFAULT_COMPRESSION } from './tool-schema.js';
 export { validateRecipe, expandRecipe, recipeParams, mapInput, dryRunRecipe, runPlan, runRecipe, RecipeError, RECIPE_MODES } from './recipe.js';
 export { recipeToolProvider, recipeToolSpec, describeRecipeForApproval, RECIPE_TOOL_NAME } from './recipe-tool.js';
+// Agent teams (F8): a team is data, a run is a turn of turns under a budget, members talk
+// through a typed board, nothing lands without a person.
+export { createBudget, validateBudget, normalizeBudget, usageOf, BudgetError, BUDGET_DIMENSIONS } from './budget.js';
+export { defineTeam, validateTeam, normalizeTeam, normalizeGrants, grantAllows, describeRole, TeamError, ROLE_MODES, MERGE_POLICIES, PLAN_MODES, GRANTABLE } from './team.js';
+export { fixedPlan, parsePlan, plannerPrompt, waves, breakCycles, TEAM_PLAN_SCHEMA } from './team-plan.js';
+export { createBoard, parseFindings, boardText, findingsInstruction, toBriefClaims, FINDINGS_SCHEMA, FINDING_KINDS } from './team-board.js';
+export { runTeam, dryRunTeam, TeamRunError, RUN_STATUSES } from './team-run.js';
+export { teamToolProvider, teamToolSpec, describeTeamForApproval, TEAM_TOOL_NAME } from './team-tool.js';
 export { mcpDispatchProvider, MCP_TOOL_NAME } from './mcp-dispatch.js';
 export { createManifest, ManifestError, SOURCES } from './manifest.js';
 export { createKernel, meetDecisions, KernelError, REQUIRED_PLUGINS, ALLOW_ALL } from './kernel.js';
