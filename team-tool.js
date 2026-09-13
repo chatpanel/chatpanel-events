@@ -36,7 +36,8 @@ export function teamToolSpec(teams) {
       + '{"action":"dry_run","name":"<team>","request":"…"} shows roles, models, tools and budget without running; '
       + '{"action":"save","team":{…}} proposes a NEW team after a task that would benefit from several roles — the user approves it on a card. '
       + 'A team: {"name":"research" (a short identifier: letters, digits, - _; used as /research),"description":"…","roles":[{"id":"researcher","prompt":"…","prefer":"balanced","grants":["data","web"]},{"id":"writer","prompt":"…","prefer":"strong","grants":["none"]}],"merge":"judge","judge":"writer","budget":{"tokens":40000,"ms":300000}}. '
-      + 'grants: none | data | web | history | mcp | mcp:<server>. merge: judge | converge | concat | first. A budget is required.',
+      + 'grants: none | data | web | history | mcp | mcp:<server>. merge: judge | converge | concat | first. A budget is required. '
+      + 'Order the work with "dependsOn": a role that builds on another\'s findings (a budget checker on a researcher) lists it, so it runs after and reads the board instead of searching again. The judge does not need a task of its own - the merge is its work.',
     parameters: {
       type: 'object',
       properties: {

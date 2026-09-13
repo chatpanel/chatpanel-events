@@ -63,9 +63,13 @@ test('a team without a budget is not a team; a page grant is refused; trust is d
 test('a fixed plan is one task per role with the roles\' dependencies; a planner\'s answer is read generously', () => {
   const t = normalizeTeam(research);
   const fixed = fixedPlan(t, 'compare X and Y');
-  assert.deepEqual(fixed.map((x) => [x.id, x.role, x.dependsOn]), [['t_researcher', 'researcher', []], ['t_writer', 'writer', ['t_researcher']]]);
+  // The writer is the judge: the merge is its work, so it gets no task of its own (a judge
+  // that also ran a blind first-wave task did its planning twice).
+  assert.deepEqual(fixed.map((x) => [x.id, x.role, x.dependsOn]), [['t_researcher', 'researcher', []]]);
+  const concat = fixedPlan({ ...normalizeTeam(research), merge: 'concat', judge: null }, 'q');
+  assert.deepEqual(concat.map((x) => [x.id, x.role, x.dependsOn]), [['t_researcher', 'researcher', []], ['t_writer', 'writer', ['t_researcher']]], 'under concat every role has a task');
   assert.match(fixed[0].prompt, /Find facts with refs\.\n\nRequest: compare X and Y/);
-  assert.deepEqual(waves(fixed).map((w) => w.map((x) => x.id)), [['t_researcher'], ['t_writer']]);
+  assert.deepEqual(waves(concat).map((w) => w.map((x) => x.id)), [['t_researcher'], ['t_writer']]);
   const planned = parsePlan('Sure! ```json\n{"tasks":[{"id":"a","role":"researcher","title":"X","prompt":"look up X"},{"id":"b","role":"researcher","title":"Y","prompt":"look up Y"},{"id":"c","role":"writer","title":"write","prompt":"compare","dependsOn":["a","b","zzz"]},{"id":"d","role":"ghost","title":"no","prompt":"nope"}]}\n```', t);
   assert.deepEqual(planned.map((x) => x.id), ['a', 'b', 'c'], 'an unknown role is dropped');
   assert.deepEqual(planned[2].dependsOn, ['a', 'b'], 'a dependency on nothing is dropped');
@@ -134,23 +138,26 @@ test('a run plans, fans out in waves with barriers, reads the board, merges thro
   assert.equal(res.proposal.kind, 'answer');
   assert.match(res.proposal.text, /Final: A is cheaper/);
   assert.equal(res.proposal.by, 'writer');
-  assert.deepEqual(calls.map((c) => [c.taskId, c.model]), [['t_researcher', 'mid'], ['t_writer', 'big'], ['merge', 'big']]);
-  assert.match(calls[1].prompt, /The board so far:\n## task: [^\n]+\n- \[claim · researcher\] A costs 10 \(refs: note:1\)/, 'the writer read the board — threaded — not the researcher\'s transcript');
+  // The writer is the judge: one task for the researcher, then the merge IS the writer's
+  // work — reading the board, with its own (empty) grants plus the board tool.
+  assert.deepEqual(calls.map((c) => [c.taskId, c.model]), [['t_researcher', 'mid'], ['merge', 'big']]);
+  assert.match(calls[1].prompt, /The board so far:\n## task: [^\n]+\n- \[claim · researcher\] A costs 10 \(refs: note:1\)/, 'the judge read the board — threaded — not the researcher\'s transcript');
   assert.match(calls[0].prompt, /end your answer with your findings/);
   assert.deepEqual(calls[0].tools?.specs?.map((x) => x.name), ['board', 'find'], 'the researcher got the board tool and the host\'s narrowed toolset');
-  assert.deepEqual(calls[1].tools?.specs?.map((x) => x.name), ['board'], 'the writer, granted none, got the board and nothing else');
+  assert.deepEqual(calls[1].tools?.specs?.map((x) => x.name), ['board'], 'the judge, granted none, got the board and nothing else');
   assert.deepEqual(toolsSeen.map((x) => x[0]), ['researcher', 'writer']);
-  assert.equal(res.board.length, 3);
-  assert.equal(res.usage.spent.tokens, 300);
+  assert.equal(res.board.length, 2);
+  assert.equal(res.usage.spent.tokens, 200);
+  assert.deepEqual(res.lookups, { distinct: 0, shared: 0 });
   // The run's events, with the board's own (a thread per task, a post per finding, the
   // thread resolved with its task, the proposal thread at the end) filtered out here and
   // asserted on their own below.
-  assert.deepEqual(events.map((e) => e[0]).filter((x) => !x.startsWith('board.') && x !== 'task.model' && x !== 'run.usage'), ['run.started', 'plan.ready', 'task.started', 'task.finding', 'task.finding', 'task.done', 'task.started', 'task.finding', 'task.done', 'run.merging', 'run.done']);
-  assert.deepEqual(events.filter((e) => e[0] === 'task.model').map((e) => [e[1].taskId, e[1].model]), [['t_researcher', 'mid'], ['t_writer', 'big']], 'the ledger is told who does what');
-  assert.equal(events.filter((e) => e[0] === 'run.usage').length, 2, 'spend after every task');
+  assert.deepEqual(events.map((e) => e[0]).filter((x) => !x.startsWith('board.') && x !== 'task.model' && x !== 'run.usage'), ['run.started', 'plan.ready', 'task.started', 'task.finding', 'task.finding', 'task.done', 'run.merging', 'task.started', 'task.done', 'run.done']);
+  assert.deepEqual(events.filter((e) => e[0] === 'task.model').map((e) => [e[1].taskId, e[1].model]), [['t_researcher', 'mid'], ['merge', 'big']], 'the ledger is told who does what');
+  assert.equal(events.filter((e) => e[0] === 'run.usage').length, 2, 'spend after every task and after the merge');
   const boardEvents = events.map((e) => e[0]).filter((x) => x.startsWith('board.'));
-  assert.deepEqual(boardEvents, ['board.thread', 'board.thread', 'board.post', 'board.post', 'board.thread-status', 'board.post', 'board.thread-status', 'board.thread', 'board.post']);
-  assert.equal(res.threads.threads.length, 3, 'two task threads and the proposal');
+  assert.deepEqual(boardEvents, ['board.thread', 'board.post', 'board.post', 'board.thread-status', 'board.thread', 'board.post']);
+  assert.equal(res.threads.threads.length, 2, 'one task thread and the proposal');
   assert.equal(res.threads.threads.at(-1).kind, 'proposal');
   assert.equal(res.threads.posts.at(-1).status, 'proposed', 'the draft awaits a decision');
   assert.equal(events.at(-1)[1].status, 'completed');
@@ -213,8 +220,8 @@ test('a planner that answers nothing readable falls back to the fixed plan; a ro
   assert.equal(res.plan.by, 'fixed');
   assert.equal(res.tasks.find((x) => x.role === 'researcher').status, 'failed');
   assert.match(res.tasks.find((x) => x.role === 'researcher').error, /no model for role/);
-  assert.equal(res.status, 'partial');
-  assert.ok(res.proposal, 'the judge still merged what there was');
+  assert.equal(res.status, 'failed', 'the only task failed; the judge has nothing to merge');
+  assert.equal(res.proposal, null);
 });
 
 // ── the tool ──────────────────────────────────────────────────────────────────────────
@@ -231,7 +238,7 @@ test('the team tool: catalogue in the spec, dry run before the card, save on All
   const dry = JSON.parse(await provider.execute(TEAM_TOOL_NAME, { action: 'dry_run', name: 'research', request: 'q' }));
   assert.equal(dry.ok, true);
   assert.deepEqual(dry.roles.map((r) => r.model), ['mid', 'big']);
-  assert.equal(dry.tasks.length, 2);
+  assert.equal(dry.tasks.length, 1, 'the judge has no task of its own');
   const ran = JSON.parse(await provider.execute(TEAM_TOOL_NAME, { action: 'run', name: 'research', request: 'compare' }));
   assert.equal(ran.proposal.text, 'did compare');
   assert.match(JSON.parse(await provider.execute(TEAM_TOOL_NAME, { action: 'run', name: 'research' })).error, /needs a request/);
