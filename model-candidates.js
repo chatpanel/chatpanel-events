@@ -49,6 +49,12 @@ export const KNOWN_CAPABILITIES = Object.freeze([
   { id: 'long-context', label: 'Long context', hint: 'Handles large documents and long meetings.' },
   { id: 'coding', label: 'Coding', hint: 'Strong at writing and refactoring code.' },
   { id: 'json', label: 'Structured output', hint: 'Reliably returns valid JSON.' },
+  // The media capabilities (architecture-pillars.md §13.2). Never guessed from a name: a
+  // model earns these by proof (the ledger's `capability` entries) or by the person's word.
+  { id: 'speech-in', label: 'Speech in', hint: 'Takes audio as input — a meeting, a voice note.' },
+  { id: 'speech-out', label: 'Speech out', hint: 'Speaks its answer.' },
+  { id: 'audio', label: 'Audio', hint: 'Understands audio content beyond speech — music, sounds.' },
+  { id: 'image-out', label: 'Image out', hint: 'Generates images.' },
 ]);
 
 /**
