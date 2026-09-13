@@ -376,9 +376,9 @@ test('an empty answer is a failed task, a failed run is reported once, and a sec
   assert.match(first.tasks[0].error, /no answer/);
   assert.match(first.hint, /Do not run the team again/);
   const again = JSON.parse(await p.execute(TEAM_TOOL_NAME, { action: 'run', name: 't', request: 'go' }));
-  assert.match(again.error, /already ran this request/);
+  assert.match(again.error, /already ran in this turn/);
   assert.equal(runs, 1, 'the second call did not run the team');
   const other = JSON.parse(await p.execute(TEAM_TOOL_NAME, { action: 'run', name: 't', request: 'something else' }));
-  assert.equal(runs, 2, 'a different request runs');
-  assert.equal(other.status, 'failed');
+  assert.equal(runs, 1, 'a rephrased request in the same turn does not run the team again');
+  assert.match(other.error, /already ran in this turn/);
 });
