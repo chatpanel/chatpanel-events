@@ -54,3 +54,19 @@ test('folding never mutates the previous lanes', () => {
   assert.equal(a.tasks.t.status, 'pending');
   assert.equal(b.tasks.t.status, 'running');
 });
+
+test('lanes know who is doing what and what it has cost so far — model per task, tool count, live spend', () => {
+  let lanes = null;
+  const feed = (e) => { lanes = teamLanes(lanes, { runId: 'r', ...e }); };
+  feed({ type: 'plan.ready', tasks: [{ id: 't1', role: 'researcher' }] });
+  feed({ type: 'task.started', taskId: 't1', role: 'researcher' });
+  feed({ type: 'task.model', taskId: 't1', role: 'researcher', model: 'claude/opus', attempt: 1 });
+  feed({ type: 'task.tool', taskId: 't1', role: 'researcher', name: 'web_search', text: '"Zion winter"' });
+  feed({ type: 'task.tool', taskId: 't1', role: 'researcher', name: 'read', text: '' });
+  feed({ type: 'run.usage', usage: { cap: { tokens: 30000 }, spent: { tokens: 1200, calls: 2, usd: 0, ms: 5000 } } });
+  assert.equal(lanes.tasks.t1.model, 'claude/opus');
+  assert.equal(lanes.tasks.t1.tools, 2);
+  assert.equal(lanes.tasks.t1.lastTool, 'read');
+  assert.equal(lanes.usage.spent.tokens, 1200);
+  assert.equal(teamLine({ type: 'task.model', model: 'x' }), null, 'no trail line for it; the ledger draws it');
+});

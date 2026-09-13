@@ -215,6 +215,8 @@ export async function runTeam({
             const m = modelFor(role, exclude);
             if (!m?.model) throw new Error(exclude.size ? `no model left for role "${role.id}" after ${[...exclude].join(', ')}` : `no model for role "${role.id}"`);
             if (attempt > 1) say('task.reappointed', { taskId: task.id, role: role.id, model: m.model, after: [...exclude] });
+            // Who is doing this task, for a ledger that shows the lanes — said per attempt.
+            say('task.model', { taskId: task.id, role: role.id, model: m.model, attempt });
             const res = await callModel({
               runId: id, taskId: task.id, role: role.id, model: m.model, mode: m.mode || role.mode,
               system: role.prompt, prompt, tools, signal: taskAc.signal,
@@ -245,6 +247,8 @@ export async function runTeam({
       const row = { id: task.id, role: task.role, title: task.title, status, text, error, usage, ms: now() - t0, findings, ...(askedAndWaiting ? { waitingOn: askedAndWaiting } : {}) };
       tasksOut.push(row);
       say(status === 'ok' ? 'task.done' : 'task.failed', { taskId: task.id, role: task.role, status, error, ms: row.ms, findings: findings.length, ...(askedAndWaiting ? { threadId: askedAndWaiting } : {}) });
+      // The spend so far, after every task — a ledger reads it live instead of at the end.
+      say('run.usage', { usage: budget.snapshot() });
       if (budget.exhausted()) overBudget = true;
     });
     // Over budget with work left: ask the person ONCE for more, on the board, before stopping.

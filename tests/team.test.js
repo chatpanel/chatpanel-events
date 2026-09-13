@@ -145,7 +145,9 @@ test('a run plans, fans out in waves with barriers, reads the board, merges thro
   // The run's events, with the board's own (a thread per task, a post per finding, the
   // thread resolved with its task, the proposal thread at the end) filtered out here and
   // asserted on their own below.
-  assert.deepEqual(events.map((e) => e[0]).filter((x) => !x.startsWith('board.')), ['run.started', 'plan.ready', 'task.started', 'task.finding', 'task.finding', 'task.done', 'task.started', 'task.finding', 'task.done', 'run.merging', 'run.done']);
+  assert.deepEqual(events.map((e) => e[0]).filter((x) => !x.startsWith('board.') && x !== 'task.model' && x !== 'run.usage'), ['run.started', 'plan.ready', 'task.started', 'task.finding', 'task.finding', 'task.done', 'task.started', 'task.finding', 'task.done', 'run.merging', 'run.done']);
+  assert.deepEqual(events.filter((e) => e[0] === 'task.model').map((e) => [e[1].taskId, e[1].model]), [['t_researcher', 'mid'], ['t_writer', 'big']], 'the ledger is told who does what');
+  assert.equal(events.filter((e) => e[0] === 'run.usage').length, 2, 'spend after every task');
   const boardEvents = events.map((e) => e[0]).filter((x) => x.startsWith('board.'));
   assert.deepEqual(boardEvents, ['board.thread', 'board.thread', 'board.post', 'board.post', 'board.thread-status', 'board.post', 'board.thread-status', 'board.thread', 'board.post']);
   assert.equal(res.threads.threads.length, 3, 'two task threads and the proposal');
