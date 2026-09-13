@@ -189,3 +189,15 @@ test('the position ribbon still behaves, because the desktop pane is built on it
   assert.deepEqual(r.map((b) => b.speaker), ['Ama', 'Ama', 'Bo', 'Bo']);
   assert.ok(r.every((b) => b.weight > 0 && b.weight <= 1));
 });
+
+import { isSpeakerImageValue, speakerLabeller } from '../meeting-shape.js';
+
+test('an avatar URL where a name should be is labelled Participant, numbered past one', () => {
+  assert.equal(isSpeakerImageValue('https://images.zoom.us/p/v2/abc'), true);
+  assert.equal(isSpeakerImageValue('Jordan Blake'), false);
+  const one = speakerLabeller(['Jordan Blake', 'https://example.com/a.png']);
+  assert.equal(one('https://example.com/a.png'), 'Participant');
+  assert.equal(one('Jordan Blake'), 'Jordan Blake');
+  const two = speakerLabeller([{ speaker: 'https://example.com/a.png' }, { speaker: 'https://example.com/b.png' }]);
+  assert.equal(two('https://example.com/b.png'), 'Participant 2');
+});
