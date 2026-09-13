@@ -96,7 +96,7 @@ test('findings are read from JSON when present and from prose when not; the boar
   assert.doesNotMatch(boardText(b.all(), { taskIds: ['t1'] }), /paragraph of prose/);
   const many = Array.from({ length: 200 }, (_, i) => ({ kind: 'claim', text: `finding ${i} ${'x'.repeat(100)}`, role: 'r', taskId: 't' }));
   const cut = boardText(many, { max: 3000 });
-  assert.match(cut, /earlier ones omitted/);
+  assert.match(cut, /earlier lines omitted/);
   assert.ok(cut.length <= 3200);
   assert.match(cut, /finding 199/, 'the newest survive');
   assert.deepEqual(toBriefClaims(f)[0].refs, [{ kind: 'note', id: 'n1' }, { kind: 'url', id: 'https://x.example' }]);
@@ -135,14 +135,22 @@ test('a run plans, fans out in waves with barriers, reads the board, merges thro
   assert.match(res.proposal.text, /Final: A is cheaper/);
   assert.equal(res.proposal.by, 'writer');
   assert.deepEqual(calls.map((c) => [c.taskId, c.model]), [['t_researcher', 'mid'], ['t_writer', 'big'], ['merge', 'big']]);
-  assert.match(calls[1].prompt, /Findings so far:\n- \[claim · researcher\] A costs 10 \(refs: note:1\)/, 'the writer read the board, not the researcher\'s transcript');
+  assert.match(calls[1].prompt, /The board so far:\n## task: [^\n]+\n- \[claim · researcher\] A costs 10 \(refs: note:1\)/, 'the writer read the board — threaded — not the researcher\'s transcript');
   assert.match(calls[0].prompt, /end your answer with your findings/);
-  assert.equal(calls[0].tools?.specs?.[0]?.name, 'find', 'the researcher got the host\'s narrowed toolset');
-  assert.equal(calls[1].tools, undefined, 'the writer, granted none, got no tools');
+  assert.deepEqual(calls[0].tools?.specs?.map((x) => x.name), ['board', 'find'], 'the researcher got the board tool and the host\'s narrowed toolset');
+  assert.deepEqual(calls[1].tools?.specs?.map((x) => x.name), ['board'], 'the writer, granted none, got the board and nothing else');
   assert.deepEqual(toolsSeen.map((x) => x[0]), ['researcher', 'writer']);
   assert.equal(res.board.length, 3);
   assert.equal(res.usage.spent.tokens, 300);
-  assert.deepEqual(events.map((e) => e[0]), ['run.started', 'plan.ready', 'task.started', 'task.finding', 'task.finding', 'task.done', 'task.started', 'task.finding', 'task.done', 'run.merging', 'run.done']);
+  // The run's events, with the board's own (a thread per task, a post per finding, the
+  // thread resolved with its task, the proposal thread at the end) filtered out here and
+  // asserted on their own below.
+  assert.deepEqual(events.map((e) => e[0]).filter((x) => !x.startsWith('board.')), ['run.started', 'plan.ready', 'task.started', 'task.finding', 'task.finding', 'task.done', 'task.started', 'task.finding', 'task.done', 'run.merging', 'run.done']);
+  const boardEvents = events.map((e) => e[0]).filter((x) => x.startsWith('board.'));
+  assert.deepEqual(boardEvents, ['board.thread', 'board.thread', 'board.post', 'board.post', 'board.thread-status', 'board.post', 'board.thread-status', 'board.thread', 'board.post']);
+  assert.equal(res.threads.threads.length, 3, 'two task threads and the proposal');
+  assert.equal(res.threads.threads.at(-1).kind, 'proposal');
+  assert.equal(res.threads.posts.at(-1).status, 'proposed', 'the draft awaits a decision');
   assert.equal(events.at(-1)[1].status, 'completed');
 });
 
