@@ -300,7 +300,11 @@ test('a role whose model is unavailable is re-appointed to the next on the roste
   assert.equal(isModelUnavailable('Model not found, inaccessible, and/or not deployed'), true);
   assert.equal(isModelUnavailable('{"status":404,"title":"Not Found","detail":"Function x: Not found"}'), true);
   assert.equal(isModelUnavailable('no API key is saved for OpenRouter'), true);
+  assert.equal(isModelUnavailable('Codex exited 1: failed'), true, 'a relayed agent that exited is a model that did not answer');
+  assert.equal(isModelUnavailable('the model returned no answer'), true);
+  assert.equal(isModelUnavailable("couldn't reach the gateway on http://127.0.0.1:4320 — fetch failed"), true);
   assert.equal(isModelUnavailable('context length exceeded'), false);
+  assert.equal(isModelUnavailable('over budget'), false);
   assert.equal(isModelUnavailable('I cannot help with that'), false);
 
   const roster = [{ id: 'a-dead', model: 'a-dead', usable: true }, { id: 'b-dead', model: 'b-dead', usable: true }, { id: 'z-alive', model: 'z-alive', usable: true }];
@@ -337,6 +341,17 @@ test('a pinned model that is unavailable falls back to the roster; a refusal doe
   r = await runTeam({ team, request: 'go', appoint: appointRole, callModel: async ({ model }) => { tried.push(model); return { ok: false, error: 'rate limited, slow down' }; } });
   assert.deepEqual(tried, ['pinned'], 'a failure that is not the model being absent is not retried on another model');
   assert.equal(r.status, 'failed');
+});
+
+test('an empty answer rotates to the next model; when none is left the task fails', async () => {
+  const roster = [{ id: 'a-empty', model: 'a-empty', usable: true }, { id: 'b-full', model: 'b-full', usable: true }];
+  const { appoint } = await import('../cowriter-router.js');
+  const ap = (role, { exclude } = {}) => { const a = appoint(role, roster, { exclude }); return a ? { model: a.model, mode: 'model' } : null; };
+  const team = normalizeTeam({ name: 't', roles: [{ id: 'a', prompt: 'p', grants: ['none'] }], budget: { tokens: 1000 } });
+  const tried = [];
+  const r = await runTeam({ team, request: 'go', appoint: ap, callModel: async ({ model }) => { tried.push(model); return { ok: true, text: model === 'b-full' ? 'answer' : '' }; } });
+  assert.deepEqual(tried, ['a-empty', 'b-full']);
+  assert.equal(r.status, 'completed');
 });
 
 test('an empty answer is a failed task, a failed run is reported once, and a second run of the same request in the turn is refused', async () => {
