@@ -58,6 +58,8 @@ export function normalizeCall(c) {
     totalMs: src.totalMs != null ? n0(src.totalMs) : undefined,
     tokensIn: src.tokensIn != null ? n0(src.tokensIn) : undefined,
     tokensOut: src.tokensOut != null ? n0(src.tokensOut) : undefined,
+    // The total when the split is unknown (a harness reports one number, or none).
+    tokens: src.tokens != null && src.tokensIn == null && src.tokensOut == null ? n0(src.tokens) : undefined,
     cost: money(src.cost),
     structured: STRUCTURED.includes(src.structured) ? src.structured : 'n/a',
     toolCalls: src.toolCalls && typeof src.toolCalls === 'object' ? { asked: n0(src.toolCalls.asked), valid: Math.min(n0(src.toolCalls.asked), n0(src.toolCalls.valid)) } : undefined,
@@ -149,7 +151,7 @@ export function summarizeEngine(entries, { minCalls = DEFAULT_MIN_CALLS, now = D
   // reported its own cost is taken as is; otherwise the mean tokens per call stands in.
   const price = list.filter((e) => e.kind === 'price').at(-1)?.price || null;
   const costs = calls.map((e) => (e.call.cost != null ? e.call.cost : price && (e.call.tokensIn != null || e.call.tokensOut != null) ? ((e.call.tokensIn || 0) * price.per1kIn + (e.call.tokensOut || 0) * price.per1kOut) / 1000 : null)).filter((v) => v != null);
-  const tokens = calls.map((e) => (e.call.tokensIn || 0) + (e.call.tokensOut || 0)).filter((v) => v > 0);
+  const tokens = calls.map((e) => (e.call.tokensIn || 0) + (e.call.tokensOut || 0) + (e.call.tokens || 0)).filter((v) => v > 0);
   const cost = { perTask: r3(mean(costs)), priced: costs.length, tokensPerTask: tokens.length ? Math.round(mean(tokens)) : null, ...(price ? { per1kIn: price.per1kIn, per1kOut: price.per1kOut, source: price.source } : {}) };
   // Capability proofs: asked vs proved; withdrawn after WITHDRAW_AFTER failures unless a
   // later proof succeeded (a person re-enabling it is a proof they record).
