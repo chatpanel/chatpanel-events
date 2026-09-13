@@ -48,7 +48,9 @@ export function dryRunTeam(team, request, { appoint = null } = {}) {
   const t = normalizeTeam(team);
   const roles = t.roles.map((r) => {
     const a = appoint ? appoint(r) : null;
-    return { id: r.id, name: r.name, mode: r.mode, prefer: r.prefer, model: a?.model || r.model || null, appointed: !!(a?.model || r.model), grants: r.grants, ...(r.recipe ? { recipe: r.recipe } : {}) };
+    // `model` is what callModel will be handed (a target id in a client that resolves ids);
+    // `label` is what a person should read — the appointer says which, when it knows.
+    return { id: r.id, name: r.name, mode: r.mode, prefer: r.prefer, model: a?.model || r.model || null, label: a?.label || a?.model || r.model || null, appointed: !!(a?.model || r.model), grants: r.grants, ...(r.recipe ? { recipe: r.recipe } : {}) };
   });
   const missing = roles.filter((r) => r.mode !== 'recipe' && !r.appointed).map((r) => r.id);
   return {
@@ -137,9 +139,11 @@ export async function runTeam({
           if (!budget.canAfford({ tokens: 0 })) { overBudget = true; throw new Error('over budget'); }
           const prior = boardText(board.all(), { taskIds: task.dependsOn?.length ? task.dependsOn : null });
           const prompt = [task.prompt, prior, findingsInstruction()].filter(Boolean).join('\n\n');
+          // A host may build a toolset asynchronously (connecting MCP servers takes time).
+          const tools = await toolsFor(role);
           const res = await callModel({
             runId: id, taskId: task.id, role: role.id, model: m.model, mode: m.mode || role.mode,
-            system: role.prompt, prompt, tools: toolsFor(role), signal,
+            system: role.prompt, prompt, tools, signal,
             onDelta: (delta, full) => say('task.delta', { taskId: task.id, role: role.id, delta, text: full }),
           });
           usage = res?.usage || null;

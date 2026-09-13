@@ -49,7 +49,7 @@ export function teamToolSpec(teams) {
 /** The card a person approves a new team on. */
 export function describeTeamForApproval(team, dry) {
   const lines = [`${team.name}${team.description ? ` — ${team.description}` : ''}`, `Plan: ${team.plan || 'fixed'} · merge: ${team.merge || 'concat'}${team.judge ? ` (judge: ${team.judge})` : ''}`];
-  for (const r of dry?.roles || team.roles || []) lines.push(`• ${describeRole({ ...r, model: r.model || undefined })}${r.appointed === false ? ' — NO MODEL AVAILABLE' : ''}`);
+  for (const r of dry?.roles || team.roles || []) lines.push(`• ${describeRole({ ...r, model: r.label || r.model || undefined })}${r.appointed === false ? ' — NO MODEL AVAILABLE' : ''}`);
   const b = team.budget || {};
   lines.push(`Budget: ${Object.entries(b).map(([k, v]) => `${k} ${v}`).join(' · ')}`);
   lines.push('Runs go through your own models and tools; a team may not act on a page. Nothing a team produces lands without you.');

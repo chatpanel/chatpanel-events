@@ -235,3 +235,12 @@ test('the team tool: catalogue in the spec, dry run before the card, save on All
   assert.equal(no.declined, true);
   assert.match(describeTeamForApproval(normalizeTeam(research), dryRunTeam(research, '', { appoint: () => null })), /NO MODEL AVAILABLE/);
 });
+
+test('a saved team is a /command in the shared grammar', async () => {
+  const { slashCommandItems, matchSlashTeam, teamInvocationText } = await import('../slash-commands.js');
+  const items = slashCommandItems({ teams: [{ name: 'research', description: 'Find and write', enabled: true }, { name: 'off', enabled: false }], prefix: 're' });
+  assert.deepEqual(items.map((i) => `${i.type}:${i.command}`), ['team:research']);
+  const m = matchSlashTeam('/research compare A and B', [{ name: 'research' }]);
+  assert.equal(m.args, 'compare A and B');
+  assert.match(teamInvocationText(m.team, m.args), /Run the saved team "research" on this request: compare A and B/);
+});
