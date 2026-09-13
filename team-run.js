@@ -239,6 +239,15 @@ export async function runTeam({
             // once, the run merged nothing, and the caller ran the team again. It is treated
             // like an unavailable model, so the next one on the roster gets the task.
             if (res?.ok && String(res?.text || '').trim()) { text = String(res.text); break; }
+            // A member that wrote on the board and then ran out of turn has still answered:
+            // what it posted in its own thread during this attempt is its answer. A relayed
+            // agent that posted its assessment and kept searching past the cap was being
+            // failed for the searching.
+            if (res?.ok) {
+              const th = board.threadForTask(task.id);
+              const mine = th ? board.posts(th.id).filter((p) => p.by === role.id && p.at >= t0 && ['note', 'draft', 'finding'].includes(p.kind)) : [];
+              if (mine.length) { text = mine.map((p) => p.text).join('\n\n'); say('task.note', { taskId: task.id, role: role.id, text: 'answered from its board posts' }); break; }
+            }
             const err = res?.ok ? 'the model returned no answer' : (res?.error || 'the model did not answer');
             if (attempt >= MAX_APPOINTMENTS || stopped() || !isModelUnavailable(err)) throw new Error(err);
             exclude.add(m.model); runExclude.add(m.model); lastErr = err;

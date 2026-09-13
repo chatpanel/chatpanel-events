@@ -175,3 +175,12 @@ test('a model that was not there for one member is skipped for the next — and 
   assert.equal(res.status, 'completed');
   assert.deepEqual(tried, [['t_a', 'a-dead'], ['t_a', 'z-alive'], ['t_b', 'z-alive'], ['merge', 'z-alive']], 'the dead model was tried once in the whole run');
 });
+
+test('a member that posted on the board and then answered nothing has still answered', async () => {
+  const t = normalizeTeam({ name: 'x', merge: 'concat', roles: [{ id: 'a', prompt: 'p', grants: ['none'] }], budget: { tokens: 1000 } });
+  const res = await runTeam({ team: t, request: 'go', appoint: () => ({ model: 'm', mode: 'model' }), callModel: async ({ tools }) => { await tools.execute('board', { action: 'post', kind: 'draft', text: 'My assessment: $3,900 all in.' }); return { ok: true, text: '' }; } });
+  assert.equal(res.status, 'completed');
+  assert.equal(res.tasks[0].status, 'ok');
+  assert.match(res.tasks[0].text, /My assessment/);
+  assert.equal(res.board.length, 1, 'the draft is the finding');
+});
