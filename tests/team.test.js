@@ -278,3 +278,10 @@ test('a team named in prose is saved under the /command it will be run by', asyn
   const bad = JSON.parse(await p.execute(TEAM_TOOL_NAME, { action: 'save', team: { name: '???', roles: [{ id: 'a', prompt: 'p', grants: ['none'] }], budget: { tokens: 100 } } }));
   assert.ok(bad.error && bad.problems.some((e) => /name/.test(e)));
 });
+
+test('the tool tells the model that "create a team" means save, only where a card can ask', () => {
+  const canSave = teamToolProvider({ teams: [], confirmSave: async () => 'allow', saveTeam: async () => {} });
+  assert.match(canSave.system, /create, make, set up or save a team/);
+  const cannot = teamToolProvider({ teams: [] });
+  assert.equal(cannot.system, '');
+});
