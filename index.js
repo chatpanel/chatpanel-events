@@ -201,7 +201,8 @@ export { emptyRun, foldRun, runFromEvents, checkpointFrom, isResumable, LIVE_RUN
 export { canonical, sha256, makeEntry, verifyChain, attest, verifyAttested, summarize, fit, adjustSummary, normalizeEngine, engineKey, normalizeScm, SCORECARD_ENTRY_KINDS, ROLE_KINDS, SCORECARD_VERSION, ENGINE_KINDS as RECORD_ENGINE_KINDS } from './scorecard.js';
 export { ENGINE_KINDS as ENGINE_SPEC_KINDS, ROUTE_PREFERS, normalizePolicy, normalizeEngineSpec, validateEngineSpec, engineRef, engineKeyOf, describeEngine, tierOf } from './engine.js';
 export { AGENT_ID_RE, APPLIES_TO, EGRESS_CLASSES, ASSISTANT_ID, AgentError, validateAgent, normalizeAgent, defineAgent, assistantAgent, engineOf, describeAgent, slugAgentId, resolveTeam, STARTER_AGENTS, starterAgents, blankAgent, agentFromForm, poolFor } from './agent.js';
-export { LEDGER_VERSION, LEDGER_ENTRY_KINDS, DECLINE_REASONS, WITHDRAW_AFTER, DEFAULT_MIN_CALLS, ledgerKey, normalizeCall, makeLedgerEntry, summarizeEngine, cardOverride, applyCard } from './model-ledger.js';
+export { LEDGER_VERSION, LEDGER_ENTRY_KINDS, DECLINE_REASONS, WITHDRAW_AFTER, ledgerKey, normalizeCall, makeLedgerEntry, summarizeEngine } from './model-ledger.js';
+export { DEFAULT_MIN_CALLS, cardOverride, applyCard } from './model-candidates.js';
 export { SCM_KINDS, validateConnection, normalizeConnection, parseRemote, connectionFor, branchFor, worktreeDirFor, credentialEnv, describeConnection, blankConnection, connectionFromForm } from './scm-connection.js';
 export { messagesFor, mergeTranscript, clipTranscript, clipMessage, newSteps, continuationNote, createControl, STEP_MAX_CHARS, TASK_TRANSCRIPT_MAX_CHARS } from './team-task.js';
 export { runTeam, resumeTeam, dryRunTeam, isModelUnavailable, TeamRunError, RUN_STATUSES } from './team-run.js';

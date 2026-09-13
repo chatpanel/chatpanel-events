@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { makeLedgerEntry, summarizeEngine, cardOverride, applyCard, verifyChain, attest, verifyAttested, ledgerKey, WITHDRAW_AFTER } from '../model-ledger.js';
-import { inferCandidate, KNOWN_CAPABILITIES } from '../model-candidates.js';
+import { makeLedgerEntry, summarizeEngine, verifyChain, attest, verifyAttested, ledgerKey, WITHDRAW_AFTER } from '../model-ledger.js';
+import { inferCandidate, KNOWN_CAPABILITIES, cardOverride, applyCard } from '../model-candidates.js';
 import { makeEntry, summarize, fit, adjustSummary } from '../scorecard.js';
 
 const subtle = webcrypto.subtle;

@@ -18,17 +18,16 @@
 //
 // `summarizeEngine(entries)` → the ENGINE CARD: availability, reliability, latency, cost,
 // capability proofs (a capability with three failed proofs is WITHDRAWN until a person
-// re-enables it), quality by job kind, the last refs. `applyCard` hands the card to
-// model-candidates.js `applyOverride`: observed quality / latency / cost replace the
-// name-based guess wherever there is enough history (≥ `minCalls`), the guess stays as the
-// prior until then, and the result says which it used (`observed[]`). Reach is never learned,
-// only typed — a ledger cannot move a model closer than the URL says.
+// re-enables it), quality by job kind, the last refs. model-candidates.js `applyCard` hands
+// the card to `applyOverride`: observed quality / latency / cost replace the name-based
+// guess wherever there is enough history (≥ `minCalls`), the guess stays as the prior until
+// then, and the result says which it used (`observed[]`). Reach is never learned, only
+// typed — a ledger cannot move a model closer than the URL says.
 //
 // Hashing, attestation and chain verification are scorecard.js's, unchanged: the same store
 // marks both, the same `verifyChain` checks both.
 
 import { canonical, sha256, engineKey, normalizeEngine } from './scorecard.js';
-import { applyOverride } from './model-candidates.js';
 export { verifyChain, attest, verifyAttested } from './scorecard.js';
 
 export const LEDGER_VERSION = 1;
@@ -195,41 +194,9 @@ export function summarizeEngine(entries, { minCalls = DEFAULT_MIN_CALLS, now = D
   };
 }
 
-/**
- * The override a card yields for model-candidates.js `applyOverride` — only the fields it
- * has enough history for. `quality` is the mean rating (for `jobKind` when the card has
- * ratings for it, else overall); `latencyMs` the observed p50 to first token (total when no
- * ttft was recorded); `costPer1k` from the price when one is known; `available: false`
- * only while it is declining right now. Returns `{ override, observed }`.
- */
-export function cardOverride(card, { minCalls = DEFAULT_MIN_CALLS, jobKind = null } = {}) {
-  const override = {}; const observed = [];
-  if (!card) return { override, observed };
-  const q = (jobKind && card.quality?.byJobKind?.[jobKind]?.count >= minCalls) ? card.quality.byJobKind[jobKind] : card.quality?.overall;
-  if (q && q.count >= minCalls && q.avg != null) { override.quality = q.avg; observed.push('quality'); }
-  const lat = card.latency?.ttft?.n >= minCalls ? card.latency.ttft.p50 : card.latency?.total?.n >= minCalls ? card.latency.total.p50 : null;
-  if (lat != null) { override.latencyMs = lat; observed.push('latencyMs'); }
-  if (card.cost?.per1kIn != null && card.cost?.per1kOut != null) { override.costPer1k = r3((card.cost.per1kIn + card.cost.per1kOut) / 2); observed.push('costPer1k'); }
-  if (card.availability?.decliningNow) { override.available = false; observed.push('available'); }
-  return { override, observed };
-}
-
-/**
- * A router model with its card applied: `applyOverride` with what the card observed, then
- * withdrawn capabilities removed (a proof beats a guess in both directions). A person's own
- * override (`userOverride`) is applied LAST — what they said outranks what was observed —
- * except reach, which `applyOverride` already keeps outward-only. The result carries
- * `observed: [...]` so the Context Ledger can say guess or observed per field.
- */
-export function applyCard(inferred, card, { minCalls = DEFAULT_MIN_CALLS, jobKind = null, userOverride = null } = {}) {
-  const { override, observed } = cardOverride(card, { minCalls, jobKind });
-  let out = applyOverride(inferred, override);
-  const withdrawn = new Set(card?.capabilities?.withdrawn || []);
-  if (withdrawn.size && Array.isArray(out.capabilities)) { out = { ...out, capabilities: out.capabilities.filter((c) => !withdrawn.has(c)) }; observed.push('capabilities'); }
-  if (userOverride) out = applyOverride(out, userOverride);
-  return { ...out, observed };
-}
-
+// `cardOverride` and `applyCard` — the card over the name-based guess — live in
+// model-candidates.js beside `applyOverride`, the seam they feed; this module stays
+// importable by a store that has no router (the gateway vendors it with scorecard.js only).
 // Agent scores normalised by engine (§13.3) live beside the card they adjust: scorecard.js
 // `adjustSummary` and `fit(job, type, summary, { qualityOf })`.
 export { adjustSummary } from './scorecard.js';
