@@ -48,9 +48,12 @@ export function appoint(role, candidates, { overrides = {}, exclude = null } = {
     if (m) return withTierAndMode(m);
   }
   const want = TIER_RANK[role.prefer] ?? 1;
+  // Ties go to ROSTER ORDER, not to the alphabet: the host lists what it trusts first (the
+  // model the person is already chatting with, installed agents), and over a gateway that
+  // lists eight hundred models the alphabet picks a provider nobody has used.
   const best = usable
-    .map((c) => ({ c: withTierAndMode(c), d: Math.abs((TIER_RANK[classifyModel(c.model)] ?? 1) - want) }))
-    .sort((a, b) => a.d - b.d || (a.c.name || a.c.id).localeCompare(b.c.name || b.c.id))[0];
+    .map((c, i) => ({ c: withTierAndMode(c), d: Math.abs((TIER_RANK[classifyModel(c.model)] ?? 1) - want), i }))
+    .sort((a, b) => a.d - b.d || a.i - b.i)[0];
   return best.c;
 }
 

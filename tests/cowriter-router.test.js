@@ -62,8 +62,10 @@ test('every role states a preference, and a dropped role resolves to nothing', (
   assert.equal(roleById('nope'), null);
 });
 
-test('ties break by name, so the same roster always appoints the same team', () => {
+test('ties break by roster order — the host lists what it trusts first, and the alphabet picks strangers', () => {
   const cands = [c('zeta', 'claude-sonnet-5'), c('alpha', 'claude-sonnet-5')];
-  assert.equal(appoint(SWARM_ROLES[1], cands).id, 'alpha');
+  assert.equal(appoint(SWARM_ROLES[1], cands).id, 'zeta');
   assert.equal(appoint(SWARM_ROLES[1], [...cands].reverse()).id, 'alpha');
+  // The same roster in the same order still appoints the same team.
+  assert.equal(appoint(SWARM_ROLES[1], cands).id, appoint(SWARM_ROLES[1], [...cands]).id);
 });
