@@ -122,6 +122,11 @@ export async function runTeam({
     return (appoint ? appoint(r, { exclude }) : null) || (r.model && !exclude?.has(r.model) ? { model: r.model, mode: r.mode } : null);
   };
   const MAX_APPOINTMENTS = 3;
+  // A model that was not there for one member is not there for the next: what failed as
+  // unavailable anywhere in this run is skipped by every later appointment. Two members
+  // each spent two minutes finding out the same agent was down.
+  const runExclude = new Set();
+  const excluding = (local) => new Set([...runExclude, ...(local || [])]);
   const stopped = () => !!signal?.aborted;
 
   say(resume ? 'run.resumed' : 'run.started', { team: t.name, request: String(request || ''), budget: budget.cap, roles: t.roles.map((r) => r.id), ...(resume ? { carried: [...carried] } : {}) });
@@ -215,7 +220,7 @@ export async function runTeam({
           const exclude = new Set();
           let lastErr = '';
           for (let attempt = 1; ; attempt++) {
-            const m = modelFor(role, exclude);
+            const m = modelFor(role, excluding(exclude));
             if (!m?.model) throw new Error(exclude.size ? `no model left for role "${role.id}" after ${[...exclude].join(', ')}` : `no model for role "${role.id}"`);
             if (attempt > 1) say('task.reappointed', { taskId: task.id, role: role.id, model: m.model, after: [...exclude], error: lastErr });
             // Who is doing this task, for a ledger that shows the lanes — said per attempt.
@@ -236,7 +241,7 @@ export async function runTeam({
             if (res?.ok && String(res?.text || '').trim()) { text = String(res.text); break; }
             const err = res?.ok ? 'the model returned no answer' : (res?.error || 'the model did not answer');
             if (attempt >= MAX_APPOINTMENTS || stopped() || !isModelUnavailable(err)) throw new Error(err);
-            exclude.add(m.model); lastErr = err;
+            exclude.add(m.model); runExclude.add(m.model); lastErr = err;
           }
         }
       } catch (e) {
@@ -294,7 +299,7 @@ export async function runTeam({
       const excl = new Set();
       let judgeErr = '';
       for (let attempt = 1; attempt <= MAX_APPOINTMENTS; attempt++) {
-        const mm = attempt === 1 ? m : modelFor(judge, excl);
+        const mm = attempt === 1 ? (runExclude.has(m?.model) ? modelFor(judge, excluding(excl)) : m) : modelFor(judge, excluding(excl));
         if (!mm?.model) break;
         if (attempt > 1) say('task.reappointed', { taskId: 'merge', role: judge.id, model: mm.model, after: [...excl], error: judgeErr });
         say('task.model', { taskId: 'merge', role: judge.id, model: mm.model, attempt });
@@ -303,7 +308,7 @@ export async function runTeam({
         if (res?.ok && String(res.text || '').trim()) break;
         const err = res?.ok ? 'the model returned no answer' : (res?.error || 'the model did not answer');
         if (stopped() || !isModelUnavailable(err)) break;
-        excl.add(mm.model); judgeErr = err;
+        excl.add(mm.model); runExclude.add(mm.model); judgeErr = err;
       }
       const judged = res?.ok && String(res.text || '').trim();
       say(judged ? 'task.done' : 'task.failed', { taskId: 'merge', role: judge.id, status: judged ? 'ok' : 'failed', error: judged ? null : (res?.error || 'the judge did not answer'), findings: 0 });

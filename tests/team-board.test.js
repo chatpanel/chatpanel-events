@@ -164,3 +164,14 @@ test('the board tool: read, post, reply — and a member that asks where nobody 
   assert.equal(await merged.execute('find', {}), 'host:find');
   assert.match(merged.system, /host/);
 });
+
+test('a model that was not there for one member is skipped for the next — and for the judge', async () => {
+  const roster = [{ id: 'a-dead', model: 'a-dead', usable: true }, { id: 'z-alive', model: 'z-alive', usable: true }];
+  const { appoint } = await import('../cowriter-router.js');
+  const ap = (role, { exclude } = {}) => { const a = appoint(role, roster, { exclude }); return a ? { model: a.model, mode: 'model' } : null; };
+  const t = normalizeTeam({ name: 'x', merge: 'judge', judge: 'w', roles: [{ id: 'a', prompt: 'p', grants: ['none'] }, { id: 'b', prompt: 'p', grants: ['none'], dependsOn: ['a'] }, { id: 'w', prompt: 'p', grants: ['none'] }], budget: { tokens: 10000 } });
+  const tried = [];
+  const res = await runTeam({ team: t, request: 'go', appoint: ap, callModel: async ({ taskId, model }) => { tried.push([taskId, model]); return model === 'a-dead' ? { ok: false, error: 'Codex exited 1: failed' } : { ok: true, text: `ok from ${taskId}` }; } });
+  assert.equal(res.status, 'completed');
+  assert.deepEqual(tried, [['t_a', 'a-dead'], ['t_a', 'z-alive'], ['t_b', 'z-alive'], ['merge', 'z-alive']], 'the dead model was tried once in the whole run');
+});
