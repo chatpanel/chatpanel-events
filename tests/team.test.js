@@ -293,3 +293,48 @@ test('a half-written team record is neither offered nor runnable', async () => {
   const out = JSON.parse(await p.execute(TEAM_TOOL_NAME, { action: 'dry_run', name: 'research', request: 'x' }));
   assert.match(out.error, /No team named/);
 });
+
+// ── fallback: a model that is not there is not the task failing ───────────────────────
+test('a role whose model is unavailable is re-appointed to the next on the roster, and the trail says so', async () => {
+  const { isModelUnavailable } = await import('../team-run.js');
+  assert.equal(isModelUnavailable('Model not found, inaccessible, and/or not deployed'), true);
+  assert.equal(isModelUnavailable('{"status":404,"title":"Not Found","detail":"Function x: Not found"}'), true);
+  assert.equal(isModelUnavailable('no API key is saved for OpenRouter'), true);
+  assert.equal(isModelUnavailable('context length exceeded'), false);
+  assert.equal(isModelUnavailable('I cannot help with that'), false);
+
+  const roster = [{ id: 'a-dead', model: 'a-dead', usable: true }, { id: 'b-dead', model: 'b-dead', usable: true }, { id: 'z-alive', model: 'z-alive', usable: true }];
+  const { appoint } = await import('../cowriter-router.js');
+  const appointRole = (role, { exclude } = {}) => { const a = appoint(role, roster, { exclude }); return a ? { model: a.model, mode: 'model' } : null; };
+  const tried = [];
+  const callModel = async ({ model }) => { tried.push(model); return model === 'z-alive' ? { ok: true, text: 'FINDING: fine [ref: x]\nfine', usage: { input_tokens: 1, output_tokens: 1 } } : { ok: false, error: 'Model not found, inaccessible, and/or not deployed' }; };
+  const events = [];
+  const team = normalizeTeam({ name: 't', roles: [{ id: 'a', prompt: 'p', grants: ['none'], prefer: 'balanced' }], budget: { tokens: 1000 } });
+  const r = await runTeam({ team, request: 'go', callModel, appoint: appointRole, emit: (type, ev) => events.push({ type, ...ev }) });
+  assert.equal(r.status, 'completed', JSON.stringify(r.tasks));
+  assert.equal(tried.length, 3, 'each unavailable model is tried once, then the next');
+  assert.equal(tried.at(-1), 'z-alive');
+  const re = events.filter((e) => e.type === 'task.reappointed');
+  assert.equal(re.length, 2);
+  assert.deepEqual(re[1].after.sort(), ['a-dead', 'b-dead']);
+  const { teamLine } = await import('../team-trail.js');
+  assert.match(teamLine(re[1]).text, /unavailable/);
+});
+
+test('a pinned model that is unavailable falls back to the roster; a refusal does not retry', async () => {
+  const roster = [{ id: 'pinned', model: 'pinned', usable: true }, { id: 'other', model: 'other', usable: true }];
+  const { appoint } = await import('../cowriter-router.js');
+  const appointRole = (role, { exclude } = {}) => {
+    if (role.model) { const c = roster.find((x) => x.id === role.model && !exclude?.has(x.id)); if (c) return { model: c.model, mode: 'model' }; }
+    const a = appoint(role, roster, { exclude }); return a ? { model: a.model, mode: 'model' } : null;
+  };
+  let tried = [];
+  const team = normalizeTeam({ name: 't', roles: [{ id: 'a', prompt: 'p', grants: ['none'], model: 'pinned' }], budget: { tokens: 1000 } });
+  let r = await runTeam({ team, request: 'go', appoint: appointRole, callModel: async ({ model }) => { tried.push(model); return model === 'pinned' ? { ok: false, error: '404 Not Found' } : { ok: true, text: 'ok' }; } });
+  assert.deepEqual(tried, ['pinned', 'other']);
+  assert.equal(r.status, 'completed');
+  tried = [];
+  r = await runTeam({ team, request: 'go', appoint: appointRole, callModel: async ({ model }) => { tried.push(model); return { ok: false, error: 'rate limited, slow down' }; } });
+  assert.deepEqual(tried, ['pinned'], 'a failure that is not the model being absent is not retried on another model');
+  assert.equal(r.status, 'failed');
+});

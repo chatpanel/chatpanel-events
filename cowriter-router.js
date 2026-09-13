@@ -36,8 +36,11 @@ function withTierAndMode(c) {
 }
 
 // Appoint one role → the best available candidate (or null if none usable).
-export function appoint(role, candidates, { overrides = {} } = {}) {
-  const usable = (candidates || []).filter((c) => c && c.usable !== false && c.model);
+export function appoint(role, candidates, { overrides = {}, exclude = null } = {}) {
+  // `exclude` — ids (or model names) that failed this run: the next appointment is the
+  // nearest tier among what is left, which is what a person would do by hand.
+  const out = exclude ? new Set(exclude) : null;
+  const usable = (candidates || []).filter((c) => c && c.usable !== false && c.model && !(out && (out.has(c.id) || out.has(c.model))));
   if (!usable.length) return null;
   const ovId = overrides[role.id];
   if (ovId) {
