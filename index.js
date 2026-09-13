@@ -197,6 +197,7 @@ export { fixedPlan, parsePlan, plannerPrompt, waves, breakCycles, TEAM_PLAN_SCHE
 export { createBoard, parseFindings, boardText, findingsInstruction, toBriefClaims, FINDINGS_SCHEMA, FINDING_KINDS } from './team-board.js';
 export { runTeam, dryRunTeam, TeamRunError, RUN_STATUSES } from './team-run.js';
 export { teamToolProvider, teamToolSpec, describeTeamForApproval, TEAM_TOOL_NAME } from './team-tool.js';
+export { teamLine, teamLanes } from './team-trail.js';
 export { mcpDispatchProvider, MCP_TOOL_NAME } from './mcp-dispatch.js';
 export { createManifest, ManifestError, SOURCES } from './manifest.js';
 export { createKernel, meetDecisions, KernelError, REQUIRED_PLUGINS, ALLOW_ALL } from './kernel.js';
