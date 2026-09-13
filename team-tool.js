@@ -66,7 +66,9 @@ const json = (v) => JSON.stringify(v);
  * @param saveTeam     `async (team) => void`
  */
 export function teamToolProvider({ teams = [], run = null, appoint = null, confirmSave = null, saveTeam = null } = {}) {
-  const byName = new Map((teams || []).filter((t) => t?.name && t.enabled !== false).map((t) => [t.name, t]));
+  // A record another client half-wrote (a name and nothing else) is not a team: it is
+  // neither offered to the model nor runnable, and Settings shows it for deleting.
+  const byName = new Map((teams || []).filter((t) => t?.name && t.enabled !== false && validateTeam(t).ok).map((t) => [t.name, t]));
   let bound = null;
   return {
     id: 'team',

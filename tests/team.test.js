@@ -285,3 +285,11 @@ test('the tool tells the model that "create a team" means save, only where a car
   const cannot = teamToolProvider({ teams: [] });
   assert.equal(cannot.system, '');
 });
+
+test('a half-written team record is neither offered nor runnable', async () => {
+  const p = teamToolProvider({ teams: [{ name: 'research' }, { name: 'ok', roles: [{ id: 'a', prompt: 'p', grants: ['none'] }], budget: { tokens: 1 } }], run: async () => ({ status: 'completed' }) });
+  assert.doesNotMatch(p.specs[0].description, /research \(/);
+  assert.match(p.specs[0].description, /ok \(a\)/);
+  const out = JSON.parse(await p.execute(TEAM_TOOL_NAME, { action: 'dry_run', name: 'research', request: 'x' }));
+  assert.match(out.error, /No team named/);
+});
