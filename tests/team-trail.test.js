@@ -70,3 +70,16 @@ test('lanes know who is doing what and what it has cost so far — model per tas
   assert.equal(lanes.usage.spent.tokens, 1200);
   assert.equal(teamLine({ type: 'task.model', model: 'x' }), null, 'no trail line for it; the ledger draws it');
 });
+
+test('a route with reasons is a line; a route without is the lane\'s; commits are said', () => {
+  assert.equal(teamLine({ type: 'task.routed', role: 'r', attempt: 1, engine: { kind: 'harness', id: 'claude', model: 'opus' }, reasons: ['nearest to strong'] }).text, 'r → claude/opus (nearest to strong)');
+  assert.equal(teamLine({ type: 'task.routed', role: 'r', attempt: 1, engine: { kind: 'model', id: 'm' }, reasons: [] }), null);
+  assert.equal(teamLine({ type: 'task.routed', role: 'r', attempt: 2, engine: { kind: 'model', id: 'm' }, reasons: ['after x'] }), null, 'the re-appointment line already said it');
+  assert.equal(teamLine({ type: 'task.scm', role: 'r', branch: 'cp/p/j', commits: 2, headAfter: 'abcdef0123' }).text, 'r committed 2 on cp/p/j @ abcdef0');
+  assert.equal(teamLine({ type: 'task.scm', role: 'r', branch: 'main', commits: 0 }), null);
+  let lanes = teamLanes(null, { type: 'plan.ready', runId: 'x', tasks: [{ id: 't', role: 'r', title: 'T' }] });
+  lanes = teamLanes(lanes, { type: 'task.routed', taskId: 't', engine: { kind: 'harness', id: 'claude' } });
+  lanes = teamLanes(lanes, { type: 'task.scm', taskId: 't', branch: 'cp/p/j', commits: 1, headAfter: 'b2' });
+  assert.deepEqual(lanes.tasks.t.engine, { kind: 'harness', id: 'claude' });
+  assert.deepEqual(lanes.tasks.t.scm, { branch: 'cp/p/j', commits: 1, head: 'b2' });
+});

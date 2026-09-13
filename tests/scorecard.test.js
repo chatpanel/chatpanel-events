@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { canonical, makeEntry, verifyChain, attest, verifyAttested, summarize, fit } from '../scorecard.js';
+import { canonical, makeEntry, verifyChain, attest, verifyAttested, summarize, fit, normalizeEngine, engineKey, normalizeScm } from '../scorecard.js';
 import { runTeam } from '../team-run.js';
 import { normalizeTeam } from '../team.js';
 
@@ -85,4 +85,81 @@ test('the runner says the fact for every finished task — size, tools, who with
   assert.ok(r.refs.some((x) => x.startsWith('run:')) && r.refs.some((x) => x.startsWith('thread:')));
   const j = scored.find((e) => e.role === 'w');
   assert.equal(j.roleKind, 'orchestrator');
+});
+
+test('the engine is on the fact: the card splits by it, ratings follow their task, independence needs two engines', async () => {
+  assert.deepEqual(normalizeEngine('gpt-4o'), { kind: 'model', id: 'gpt-4o' });
+  assert.deepEqual(normalizeEngine({ kind: 'harness', id: 'claude', model: 'opus' }), { kind: 'harness', id: 'claude', model: 'opus' });
+  assert.deepEqual(normalizeEngine({ harnessId: 'codex' }), { kind: 'harness', id: 'codex' }, 'harnessId implies the kind');
+  assert.equal(engineKey({ kind: 'harness', id: 'claude', model: 'opus' }), 'harness:claude/opus');
+  assert.equal(engineKey({ id: 'ep1', model: 'ep1' }), 'model:ep1', 'a model equal to the id is not repeated');
+  assert.equal(normalizeEngine(null), null);
+  assert.deepEqual(normalizeScm({ repo: '/r', branch: 'cp/p/j', head: 'a'.repeat(40), headAfter: 'b'.repeat(40), commits: '2', merged: 'yes', extra: 1 }),
+    { repo: '/r', branch: 'cp/p/j', head: 'a'.repeat(40), headAfter: 'b'.repeat(40), commits: 2 }, 'merged is only ever a boolean; unknown keys are dropped');
+  let prev = null; const entries = [];
+  const facts = [
+    { agentId: 'r', kind: 'task.done', runId: 'r1', taskId: 't1', engine: { kind: 'harness', id: 'claude', model: 'opus' }, size: { tokens: 1000 }, scm: { repo: '/r', branch: 'cp/p/j', commits: 2, pr: 'https://x/pr/1', merged: true } },
+    { agentId: 'r', kind: 'rating', runId: 'r1', taskId: 't1', rating: { by: 'person', score: 0.9 } },
+    { agentId: 'r', kind: 'task.done', runId: 'r2', taskId: 't1', engine: { kind: 'model', id: 'haiku' }, size: { tokens: 200 } },
+    { agentId: 'r', kind: 'rating', runId: 'r2', rating: { by: 'judge', score: 0.6 } }, // no taskId: r2 had one task, so it is that one
+    { agentId: 'r', kind: 'task.failed', runId: 'r3', taskId: 't1', engine: 'haiku', error: 'x' },
+    { agentId: 'r', kind: 'rating', rating: { by: 'person', score: 0.7, about: 0 } }, // by seq
+    { agentId: 'r', kind: 'task.done', runId: 'r4', taskId: 't1' }, // an old fact with no engine: counted on the card, absent from byEngine
+  ];
+  for (const f of facts) { prev = await makeEntry(f, prev, { subtle }); entries.push(prev); }
+  assert.deepEqual(entries[0].engine, { kind: 'harness', id: 'claude', model: 'opus' });
+  assert.equal(entries[0].scm.merged, true);
+  assert.ok((await verifyChain(entries, { subtle })).ok);
+  const card = summarize(entries);
+  assert.equal(card.jobsDone, 3);
+  assert.deepEqual(card.byEngine.map((r) => [r.key, r.tasks, r.done, r.failed, r.failRate, r.tokens, r.rating.avg, r.rating.count]), [
+    ['model:haiku', 2, 1, 1, 0.5, 100, 0.6, 1],
+    ['harness:claude/opus', 1, 1, 0, 0, 1000, 0.8, 2],
+  ]);
+  assert.equal(card.engineIndependence, 0.8, '1 − (0.8 − 0.6)');
+  assert.deepEqual(card.scm, { tasks: 1, commits: 2, prs: 1, merged: 1 });
+  assert.equal(summarize(entries.slice(0, 2)).engineIndependence, null, 'one engine says nothing about independence');
+});
+
+test('the runner says task.routed for every appointment — engine, reasons, alternatives — and the fact carries engine and scm', async () => {
+  const events = [];
+  const team = normalizeTeam({ name: 't', merge: 'judge', judge: 'w', roles: [{ id: 'r', prompt: 'code', grants: ['none'] }, { id: 'w', prompt: 'write', grants: ['none'], model: 'pinned' }], budget: { tokens: 10000 } });
+  await runTeam({
+    team, request: 'q', emit: (type, ev) => events.push({ type, ...ev }),
+    appoint: (role) => (role.id === 'r'
+      ? { model: 'claude/opus', mode: 'model', engine: { kind: 'harness', id: 'claude', model: 'opus' }, reasons: ['nearest to strong'], alternatives: [{ kind: 'model', id: 'gpt-4o' }] }
+      : { model: role.model, mode: 'model' }),
+    callModel: async ({ role }) => (role === 'r'
+      ? { ok: true, text: 'done', scm: { repo: '/r', remote: 'git@x:o/r.git', branch: 'cp/p/j', head: 'a1', headAfter: 'b2', commits: 1 } }
+      : { ok: true, text: 'the answer' }),
+  });
+  const routed = events.filter((e) => e.type === 'task.routed');
+  assert.deepEqual(routed.map((e) => [e.role, e.engine, e.reasons, e.exploration]), [
+    ['r', { kind: 'harness', id: 'claude', model: 'opus' }, ['nearest to strong'], false],
+    ['w', { kind: 'model', id: 'pinned' }, ['pinned by the role'], false],
+  ]);
+  assert.deepEqual(routed[0].alternatives, [{ kind: 'model', id: 'gpt-4o' }]);
+  const scm = events.find((e) => e.type === 'task.scm');
+  assert.equal(scm.role, 'r'); assert.equal(scm.commits, 1); assert.equal(scm.branch, 'cp/p/j');
+  const scored = events.filter((e) => e.type === 'task.scored');
+  const r = scored.find((e) => e.role === 'r');
+  assert.deepEqual(r.engine, { kind: 'harness', id: 'claude', model: 'opus' });
+  assert.equal(r.scm.headAfter, 'b2');
+  const j = scored.find((e) => e.role === 'w');
+  assert.equal(j.model, 'pinned'); assert.deepEqual(j.engine, { kind: 'model', id: 'pinned' }); assert.equal(j.scm, undefined);
+});
+
+test('a re-appointment is routed again with the reason, and the fact names the engine that answered', async () => {
+  const events = [];
+  const team = normalizeTeam({ name: 't', merge: 'first', roles: [{ id: 'r', prompt: 'x', grants: ['none'] }], budget: { tokens: 10000 } });
+  const roster = [{ model: 'codex', engine: { kind: 'harness', id: 'codex' } }, { model: 'haiku', engine: { kind: 'model', id: 'haiku' } }];
+  await runTeam({
+    team, request: 'q', emit: (type, ev) => events.push({ type, ...ev }),
+    appoint: (_role, { exclude } = {}) => roster.find((c) => !exclude?.has(c.model)) || null,
+    callModel: async ({ model }) => (model === 'codex' ? { ok: false, error: 'codex exited 1' } : { ok: true, text: 'ok' }),
+  });
+  const routed = events.filter((e) => e.type === 'task.routed');
+  assert.deepEqual(routed.map((e) => [e.attempt, e.engine.id]), [[1, 'codex'], [2, 'haiku']]);
+  assert.deepEqual(routed[1].reasons, ['after codex (unavailable)']);
+  assert.equal(events.find((e) => e.type === 'task.scored').engine.id, 'haiku');
 });
