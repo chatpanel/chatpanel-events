@@ -264,3 +264,17 @@ test('every starter team is valid, and a starter is a copy', async () => {
   assert.equal(bad.ok, false);
   assert.ok(bad.errors.some((e) => /budget/.test(e)) && bad.errors.some((e) => /page/.test(e)));
 });
+
+test('a team named in prose is saved under the /command it will be run by', async () => {
+  const { slugTeamName } = await import('../team.js');
+  assert.equal(slugTeamName('Research Team'), 'research-team');
+  assert.equal(slugTeamName('  2nd Pass: Review!  '), 'nd-pass-review');
+  assert.equal(slugTeamName('???'), '');
+  let saved = null;
+  const p = teamToolProvider({ teams: [], confirmSave: async () => 'allow', saveTeam: async (t) => { saved = t; } });
+  const out = JSON.parse(await p.execute(TEAM_TOOL_NAME, { action: 'save', team: { name: 'Research Team', roles: [{ id: 'a', prompt: 'p', grants: ['none'] }], budget: { tokens: 100 } } }));
+  assert.equal(out.saved, 'research-team', JSON.stringify(out));
+  assert.equal(saved.name, 'research-team');
+  const bad = JSON.parse(await p.execute(TEAM_TOOL_NAME, { action: 'save', team: { name: '???', roles: [{ id: 'a', prompt: 'p', grants: ['none'] }], budget: { tokens: 100 } } }));
+  assert.ok(bad.error && bad.problems.some((e) => /name/.test(e)));
+});
