@@ -259,7 +259,8 @@ export async function runTeam({
       budgetAsked = true;
       const left = tasks.filter((x) => !tasksOut.some((y) => y.id === x.id)).length;
       const spent = budget.snapshot().spent;
-      const a = await askPerson({ type: 'budget', text: `The team has used its budget (${Object.entries(spent).filter(([k]) => budget.cap[k] !== undefined).map(([k, v]) => `${k} ${v} of ${budget.cap[k]}`).join(', ')}) with ${left} task${left === 1 ? '' : 's'} left. Raise it by half, or stop here with what it has?`, options: ['Raise by half', 'Stop here'] });
+      const what = left ? `${left} task${left === 1 ? '' : 's'} and the merge left` : 'only the merge left';
+      const a = await askPerson({ type: 'budget', text: `The team has used its budget (${Object.entries(spent).filter(([k]) => budget.cap[k] !== undefined).map(([k, v]) => `${k} ${v} of ${budget.cap[k]}`).join(', ')}) with ${what}. Raise it by half, or stop here with what it has?`, options: ['Raise by half', 'Stop here'] });
       if (a && /raise|allow|yes|more|continue/i.test(a.text)) { budget.raise(1.5); overBudget = false; }
     }
   }
