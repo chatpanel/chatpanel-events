@@ -244,3 +244,23 @@ test('a saved team is a /command in the shared grammar', async () => {
   assert.equal(m.args, 'compare A and B');
   assert.match(teamInvocationText(m.team, m.args), /Run the saved team "research" on this request: compare A and B/);
 });
+
+// ── starters and the editor's form ────────────────────────────────────────────────────
+test('every starter team is valid, and a starter is a copy', async () => {
+  const { starterTeams, teamFromForm, blankTeam } = await import('../team.js');
+  const a = starterTeams();
+  for (const t of a) assert.equal(validateTeam(t).ok, true, t.name);
+  a[0].roles[0].grants.push('mcp');
+  assert.equal(starterTeams()[0].roles[0].grants.includes('mcp'), false, 'mutating one copy leaves the template alone');
+  assert.equal(validateTeam(blankTeam()).ok, false, 'a blank team has no name yet');
+  const form = { ...blankTeam(), name: 'mine', roles: [{ id: 'a', prompt: 'do', prefer: 'cheap', grants: 'web, data' }, { id: 'w', prompt: 'write', grants: '' }], merge: 'judge', judge: '', budget: { tokens: '5000', ms: '' } };
+  const r = teamFromForm(form);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(r.team.roles[0].grants, ['web', 'data']);
+  assert.deepEqual(r.team.roles[1].grants, ['none'], 'no grants text means none');
+  assert.equal(r.team.judge, 'w', 'a blank judge under merge: judge is the last role');
+  assert.deepEqual(r.team.budget, { tokens: 5000 }, 'a blank budget field is not a dimension');
+  const bad = teamFromForm({ ...form, budget: { tokens: '' }, roles: [{ id: 'a', prompt: '', grants: 'page' }] });
+  assert.equal(bad.ok, false);
+  assert.ok(bad.errors.some((e) => /budget/.test(e)) && bad.errors.some((e) => /page/.test(e)));
+});
