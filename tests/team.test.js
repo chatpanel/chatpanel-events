@@ -338,3 +338,24 @@ test('a pinned model that is unavailable falls back to the roster; a refusal doe
   assert.deepEqual(tried, ['pinned'], 'a failure that is not the model being absent is not retried on another model');
   assert.equal(r.status, 'failed');
 });
+
+test('an empty answer is a failed task, a failed run is reported once, and a second run of the same request in the turn is refused', async () => {
+  const team = normalizeTeam({ name: 't', roles: [{ id: 'a', prompt: 'p', grants: ['none'] }], budget: { tokens: 1000 } });
+  let runs = 0;
+  const p = teamToolProvider({
+    teams: [team],
+    appoint: () => ({ model: 'm', mode: 'model' }),
+    run: async ({ team: tm, request }) => { runs += 1; return runTeam({ team: tm, request, appoint: () => ({ model: 'm', mode: 'model' }), callModel: async () => ({ ok: true, text: '   ' }) }); },
+  });
+  const first = JSON.parse(await p.execute(TEAM_TOOL_NAME, { action: 'run', name: 't', request: 'go' }));
+  assert.equal(first.status, 'failed');
+  assert.equal(first.tasks[0].status, 'failed');
+  assert.match(first.tasks[0].error, /no answer/);
+  assert.match(first.hint, /Do not run the team again/);
+  const again = JSON.parse(await p.execute(TEAM_TOOL_NAME, { action: 'run', name: 't', request: 'go' }));
+  assert.match(again.error, /already ran this request/);
+  assert.equal(runs, 1, 'the second call did not run the team');
+  const other = JSON.parse(await p.execute(TEAM_TOOL_NAME, { action: 'run', name: 't', request: 'something else' }));
+  assert.equal(runs, 2, 'a different request runs');
+  assert.equal(other.status, 'failed');
+});
