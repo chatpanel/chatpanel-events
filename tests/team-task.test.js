@@ -49,9 +49,9 @@ test('a model that fails mid-task is rotated away from and the next model CONTIN
   assert.match(seen[1].last, /continuing this task.*first stopped/s);
   assert.equal(res.tasks[0].transcript.length, 5, 'the record holds the whole conversation');
   assert.deepEqual(res.tasks[0].attempts.map((a) => [a.model, a.status]), [['first', 'error'], ['second', 'ok']]);
-  const steps = events.filter((e) => e.type === 'task.step');
-  assert.equal(steps.length, 2, 'each attempt\'s new messages went to the record');
-  assert.equal(steps[0].steps.length, 3);
+  const steps = events.filter((e) => e.type === 'task.step').flatMap((e) => e.steps);
+  assert.equal(steps.length, 5, 'every message went to the record, once');
+  assert.deepEqual(steps.map((m) => m.role), ['user', 'assistant', 'tool', 'user', 'assistant']);
   const posts = res.threads.posts.filter((p) => p.by === 'runner');
   assert.ok(posts.some((p) => /first stopped/.test(p.text)), 'the hand-off is said on the board');
 });
@@ -134,4 +134,21 @@ test('the record: events fold into tasks with transcripts; a run whose client di
   const second = await resumeTeam({ checkpoint: cp2, team: one(), request: 'go', appoint: () => ({ model: 'n', mode: 'model' }), callModel: async ({ messages }) => { seen.push(messages.length); return { ok: true, text: 'finished' }; } });
   assert.equal(second.status, 'completed');
   assert.equal(seen[0], 3, 'resumed from the record\'s transcript plus the note');
+});
+
+test('the record grows as the attempt goes: a host that reports each step puts the work on the record before the attempt ends', async () => {
+  const events = [];
+  const ac = new AbortController();
+  const callModel = async ({ messages, onStep, signal }) => {
+    onStep({ role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'find', arguments: '{}' } }] });
+    onStep({ role: 'tool', tool_call_id: 'c1', content: 'looked up X' });
+    // The process dies here: no return ever comes. Simulated by aborting and returning nothing.
+    ac.abort();
+    return new Promise((resolve) => { signal.addEventListener('abort', () => resolve({ ok: true, aborted: true, text: '' }), { once: true }); if (signal.aborted) resolve({ ok: true, aborted: true, text: '' }); });
+  };
+  const p = runTeam({ team: one(), request: 'go', callModel, appoint: () => ({ model: 'm', mode: 'model' }), signal: ac.signal, emit: (type, ev) => events.push({ type, ...ev }) });
+  const res = await p;
+  const steps = events.filter((e) => e.type === 'task.step').flatMap((e) => e.steps);
+  assert.equal(steps.length, 3, 'the task, the call and its result were each recorded when they happened');
+  assert.equal(res.tasks[0].transcript.length, 3, 'nothing is recorded twice');
 });
