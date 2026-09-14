@@ -163,3 +163,30 @@ export function takeUpLine(task, pick) {
   if (!pick?.roleId) return `nobody in the run fits "${task.title}"${pick?.why ? `: ${pick.why}` : ''}`;
   return `${pick.roleId} took: ${task.title} (fit ${Math.round((pick.fit || 0) * 100)}%${pick.reasons?.length ? ` — ${pick.reasons[0]}` : ''})`;
 }
+
+/**
+ * A run's threads as the board lists them: a sub-task's thread (one whose `parent` names a
+ * task) follows its parent's thread, indented — `depth` on each row — so the tree reads as
+ * one. Roots keep the order given (a board sorts them newest first); children come in the
+ * order they were requested. A thread whose parent is not on the board is a root.
+ */
+export function threadRows(threads) {
+  const list = (threads || []).filter(Boolean);
+  const byTask = new Map(list.filter((t) => t.kind === 'task' && t.taskId).map((t) => [t.taskId, t]));
+  const children = new Map();
+  for (const t of list) {
+    if (!t.parent || !byTask.has(t.parent) || byTask.get(t.parent) === t) continue;
+    const key = byTask.get(t.parent).id;
+    if (!children.has(key)) children.set(key, []);
+    children.get(key).push(t);
+  }
+  const isChild = new Set([...children.values()].flat().map((t) => t.id));
+  const out = [];
+  const walk = (t, depth, seen) => {
+    if (seen.has(t.id)) return;
+    out.push({ ...t, depth });
+    for (const c of (children.get(t.id) || []).sort((a, b) => (a.at || 0) - (b.at || 0))) walk(c, depth + 1, new Set([...seen, t.id]));
+  };
+  for (const t of list) if (!isChild.has(t.id)) walk(t, 0, new Set());
+  return out;
+}

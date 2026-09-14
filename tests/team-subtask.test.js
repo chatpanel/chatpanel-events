@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizeRequest, subtaskFromRequest, takeUp, jobFromSubtask, extendDependents, taskTree, holdsGrants, MAX_SUBTASKS } from '../team-subtask.js';
+import { normalizeRequest, subtaskFromRequest, takeUp, jobFromSubtask, extendDependents, taskTree, threadRows, holdsGrants, MAX_SUBTASKS } from '../team-subtask.js';
 import { runTeam } from '../team-run.js';
 import { normalizeTeam } from '../team.js';
 import { runFromEvents } from '../team-record.js';
@@ -60,6 +60,12 @@ test('a request is checked, becomes a sub-task under its parent, and is offered 
   assert.deepEqual(tasks[1].dependsOn, ['a', 'a-s1']);
   const tree = taskTree(tasks);
   assert.deepEqual(tree.map((n) => [n.task.id, n.children.map((c) => c.task.id)]), [['a', ['a-s1']], ['b', []], ['c', []]]);
+  // The board lists a sub-task's thread under its parent's, indented; a proposal hung off a task follows it too.
+  const threads = [
+    { id: 'th1', kind: 'task', taskId: 'b', at: 1 }, { id: 'th2', kind: 'task', taskId: 'a', at: 2 },
+    { id: 'th3', kind: 'task', taskId: 'a-s1', parent: 'a', at: 3 }, { id: 'th4', kind: 'proposal', parent: 'a-s1', at: 4 }, { id: 'th5', kind: 'task', taskId: 'x', parent: 'gone', at: 5 },
+  ];
+  assert.deepEqual(threadRows(threads).map((t) => [t.id, t.depth]), [['th1', 0], ['th2', 0], ['th3', 1], ['th4', 2], ['th5', 0]]);
 });
 
 const scripted = (answers) => {
@@ -311,4 +317,35 @@ test('the tool guard: a member that answers from memory while holding a tool the
   assert.ok(tools, 'the planner\'s tool proposal is a thread');
   assert.match(r4.threads.posts.find((p) => p.threadId === tools.id).text, /r \(t1\): history — the team is in the notes/);
   assert.deepEqual(parsePlan('{"tasks":[{"id":"t1","role":"r","title":"x","prompt":"y","grants":["web","shell","none","bogus"],"why":"w"}]}', planned)[0].grants, ['web', 'shell']);
+});
+
+test('recruitForRun: the host\'s job board in one call — the pick becomes a resolved role, none becomes a proposal card, an approved card applies', async () => {
+  const { recruitForRun } = await import('../recruit.js');
+  const { engineRows } = await import('../recruit.js');
+  const { jobFromSubtask: mk } = await import('../team-subtask.js');
+  const job = mk({ id: 't_w-s1', title: 'Run the tests', prompt: 'npm test', needs: { skills: ['testing'], tools: [], grants: ['shell'] }, requestedBy: 'writer', requestedAt: 1, parent: 't_w' }, { runId: 'run_1' });
+  const pool = [
+    { id: 'implementer', name: 'Implementer', purpose: 'runs code', prompt: 'You run code.', skills: ['testing', 'code'], grants: ['shell', 'scm:read'], engine: { kind: 'harness', harnessId: 'claude' }, appliesTo: ['jobs'] },
+    { id: 'poet', name: 'Poet', purpose: 'verse', prompt: 'Rhyme.', skills: ['poetry'], grants: ['none'], engine: 'auto', appliesTo: ['jobs'] },
+  ];
+  const rows = engineRows([{ id: 'claude', model: 'claude', kind: 'bridge', capabilities: ['tools', 'coding'], quality: 0.9, reach: 'device' }, { id: 'gpt', model: 'gpt-x', capabilities: ['tools'], quality: 0.7 }]);
+  const got = await recruitForRun(job, pool, { rows, targetFor: (e) => (e.kind === 'harness' ? e.harnessId : e.model) });
+  assert.equal(got.agentId, 'implementer');
+  assert.equal(got.role.id, 'implementer');
+  assert.equal(got.role.model, 'claude', 'resolved to a target the appointer knows');
+  assert.equal(got.role.engine.kind, 'harness');
+  assert.match(got.role.prompt, /You run code\./);
+  assert.match(got.role.prompt, /Job: Run the tests/);
+  assert.deepEqual(got.role.grants, ['shell'], 'the job narrows the grants');
+  assert.equal(got.events[1].job.status, 'recruited');
+  // No one fits: a card to propose, nothing created.
+  const none = await recruitForRun({ ...job, needs: { skills: ['german'], tools: [], grants: ['web'] } }, pool, { rows });
+  assert.equal(none.role, undefined);
+  assert.equal(none.proposal.name, 'Run the tests');
+  assert.deepEqual(none.proposal.skills, ['german']);
+  assert.equal(none.proposal.createdBy, 'fit');
+  // The approved card applies with the rest and is recruited.
+  const made = await recruitForRun({ ...job, needs: { skills: ['german'], tools: [], grants: ['web'] } }, pool, { rows, create: none.proposal, targetFor: (e) => (e.kind === 'harness' ? e.harnessId : e.model) });
+  assert.equal(made.agentId, none.proposal.id);
+  assert.ok(made.role.model, 'the new agent (engine auto) got a target');
 });
