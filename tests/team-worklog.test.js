@@ -1,0 +1,75 @@
+// THE WORK LOG: a task's thread as the record of the work. Folded from the same events the
+// store and both clients fold, so a task that failed before its first post still shows
+// what it did — the prompt, its calls, what came back, which models were tried, the end.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { runFromEvents } from '../team-record.js';
+import { workLogFor, workLogText, workLogEvidence, describeCall } from '../team-worklog.js';
+import { clipMessage, messagesFor, isThought } from '../team-task.js';
+
+const T0 = 1_000_000;
+const ev = (type, at, payload) => ({ type, at, payload });
+const events = [
+  ev('run.started', T0, { team: 'research', request: 'AAPL?', roles: ['researcher', 'writer'] }),
+  ev('plan.ready', T0 + 1, { by: 'fixed', tasks: [{ id: 't_r', role: 'researcher', title: 'researcher' }] }),
+  ev('board.thread', T0 + 1, { thread: { id: 'th1', kind: 'task', taskId: 't_r', title: 'researcher', by: 'runner', status: 'open', at: T0 + 1, posts: 0 } }),
+  ev('task.started', T0 + 2, { taskId: 't_r' }),
+  ev('task.model', T0 + 3, { taskId: 't_r', model: 'local-llm', attempt: 1 }),
+  ev('task.step', T0 + 4, { taskId: 't_r', steps: [{ role: 'user', content: 'Research the request.', at: T0 + 4, attempt: 1 }] }),
+  ev('task.step', T0 + 10, { taskId: 't_r', steps: [{ role: 'assistant', thought: 'I should search the web first.', at: T0 + 10, attempt: 1 }] }),
+  ev('task.step', T0 + 11, { taskId: 't_r', steps: [{ role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'find', arguments: '{"action":"web_search","args":{"query":"AAPL news"}}' } }], at: T0 + 11, attempt: 1 }] }),
+  ev('task.tool', T0 + 11, { taskId: 't_r', name: 'find' }),
+  ev('task.step', T0 + 20, { taskId: 't_r', steps: [{ role: 'tool', tool_call_id: 'c1', content: 'error: network error', at: T0 + 20, attempt: 1 }] }),
+  ev('task.reappointed', T0 + 21, { taskId: 't_r', model: 'claude-code', after: ['local-llm'], error: 'network error' }),
+  ev('task.model', T0 + 21, { taskId: 't_r', model: 'claude-code', attempt: 2 }),
+  ev('board.post', T0 + 21, { post: { id: 'p1', threadId: 'th1', by: 'runner', kind: 'note', text: 'local-llm stopped (network error); the task continues on the next model.', at: T0 + 21, refs: [], replyTo: null } }),
+  // an older build's step: no stamp — it must still land under attempt 2, after the note
+  ev('task.step', T0 + 30, { taskId: 't_r', steps: [{ role: 'user', content: 'Continue from where local-llm stopped.' }] }),
+  ev('task.step', T0 + 40, { taskId: 't_r', steps: [{ role: 'assistant', content: 'FINDING: AAPL closed at $332.', at: T0 + 40, attempt: 2 }] }),
+  ev('board.post', T0 + 41, { post: { id: 'p2', threadId: 'th1', by: 'researcher', kind: 'finding', text: 'AAPL closed at $332', at: T0 + 41, refs: ['web:1'], replyTo: null, status: 'approved' } }),
+  ev('task.done', T0 + 42, { taskId: 't_r', status: 'ok', ms: 40, findings: 1 }),
+];
+
+test('the log orders attempts, steps, thoughts, calls, results, notes, posts and the end by time', () => {
+  const run = runFromEvents('run_1', events);
+  const log = workLogFor(run, 't_r');
+  assert.deepEqual(log.map((e) => e.kind), ['attempt', 'prompt', 'thought', 'call', 'result', 'attempt', 'post', 'note', 'text', 'post', 'end']);
+  assert.equal(log[0].model, 'local-llm');
+  assert.equal(log[2].by, 'researcher');
+  assert.equal(log[3].text, 'find web_search query="AAPL news"', 'a call reads as what it asked for');
+  assert.equal(log[4].error, true, 'a result that starts with error: is one');
+  assert.equal(log[5].attempt, 2);
+  assert.equal(log[7].kind, 'note'); assert.equal(log[7].attempt, 2, 'an unstamped step follows its attempt');
+  assert.equal(log.at(-1).status, 'ok');
+  assert.match(log.at(-1).text, /done after 2 models \(local-llm → claude-code\) · 1 finding · 1 tool call/);
+  const text = workLogText(log);
+  assert.match(text, /researcher \(thinking\): I should search/);
+  assert.match(text, /← find: error: network error/);
+  const evd = workLogEvidence(log);
+  assert.deepEqual([evd.calls, evd.results, evd.resultErrors, evd.attempts, evd.findings, evd.decided.approved, evd.status], [1, 1, 1, 2, 1, 1, 'ok']);
+});
+
+test('a running task shows what it is saying now; a failed one says why', () => {
+  const run = runFromEvents('run_2', [...events.slice(0, 9), ev('task.delta', T0 + 15, { taskId: 't_r', text: 'Looking at the results…' })]);
+  const live = workLogFor(run, 't_r');
+  assert.equal(live.at(-1).kind, 'text'); assert.equal(live.at(-1).live, true);
+  const failed = runFromEvents('run_3', [...events.slice(0, 10), ev('task.failed', T0 + 22, { taskId: 't_r', status: 'failed', error: 'network error', ms: 20 })]);
+  const end = workLogFor(failed, 't_r').at(-1);
+  assert.equal(end.kind, 'end'); assert.equal(end.status, 'failed'); assert.match(end.text, /failed: network error/);
+  assert.deepEqual(workLogFor(run, 'nope'), []);
+});
+
+test('a thought is on the record, never on the wire', () => {
+  const thought = clipMessage({ role: 'assistant', thought: 'hmm', at: 5, attempt: 1 });
+  assert.equal(thought.thought, 'hmm'); assert.equal(thought.at, 5); assert.equal(thought.attempt, 1);
+  assert.equal(isThought(thought), true);
+  assert.equal(isThought({ role: 'assistant', content: 'x', thought: 'y' }), false);
+  const sent = messagesFor({ transcript: [{ role: 'user', content: 'q' }, thought, { role: 'assistant', content: 'a' }] }, { prompt: 'q' });
+  assert.deepEqual(sent.map((m) => m.role), ['user', 'assistant']);
+  assert.equal(sent.some((m) => 'thought' in m), false);
+});
+
+test('describeCall', () => {
+  assert.equal(describeCall({ function: { name: 'history_search', arguments: '{"query":"aapl","limit":5}' } }), 'history_search query="aapl"');
+  assert.equal(describeCall({ function: { name: 'board', arguments: 'not json' } }), 'board raw="not json"');
+});
