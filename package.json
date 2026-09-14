@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.90.0",
+  "version": "0.91.0",
   "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
@@ -99,6 +99,7 @@
     "./team-cache.js": "./team-cache.js",
     "./team-task.js": "./team-task.js",
     "./team-record.js": "./team-record.js",
+    "./team-subtask.js": "./team-subtask.js",
     "./scorecard.js": "./scorecard.js",
     "./project.js": "./project.js",
     "./job.js": "./job.js",
@@ -231,6 +232,7 @@
     "team-cache.js",
     "team-task.js",
     "team-record.js",
+    "team-subtask.js",
     "scorecard.js",
     "project.js",
     "job.js",

@@ -70,7 +70,7 @@ export {
   WEATHER_HOST, WEATHER_TIMEOUT_MS, WeatherError,
 } from './weather.js';
 export { defineToolGroup, createToolGroupRegistry, ToolGroupError } from './tool-groups.js';
-export { toolNeedFor } from './tool-need.js';
+export { toolNeedFor, grantsNeededFor } from './tool-need.js';
 export { parseFlowchart, layoutFlowchart, renderFlowchartSvg } from './flowchart.js';
 export { validateView, validateViewInvocation, viewResult } from './view.js';
 export { validateWidget, validateWidgetMessage, effectiveGrants, widgetIcon, WIDGET_SURFACES } from './widget.js';
@@ -214,6 +214,7 @@ export { messagesFor, mergeTranscript, clipTranscript, clipMessage, newSteps, co
 export { runTeam, resumeTeam, dryRunTeam, isModelUnavailable, TeamRunError, RUN_STATUSES } from './team-run.js';
 export { teamToolProvider, teamToolSpec, teamToolTimeoutMs, describeTeamForApproval, TEAM_TOOL_NAME } from './team-tool.js';
 export { workLogFor, workLogText, workLogEvidence, describeCall, WORKLOG_KINDS } from './team-worklog.js';
+export { normalizeRequest, subtaskFromRequest, takeUp, takeUpLine, holdsGrants, jobFromSubtask, extendDependents, taskTree, MAX_SUBTASKS, MAX_DEPTH, MIN_TAKEUP_FIT } from './team-subtask.js';
 export { teamLine, teamLanes } from './team-trail.js';
 export { mcpDispatchProvider, MCP_TOOL_NAME } from './mcp-dispatch.js';
 export { createManifest, ManifestError, SOURCES } from './manifest.js';
