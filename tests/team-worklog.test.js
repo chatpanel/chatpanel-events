@@ -73,3 +73,18 @@ test('describeCall', () => {
   assert.equal(describeCall({ function: { name: 'history_search', arguments: '{"query":"aapl","limit":5}' } }), 'history_search query="aapl"');
   assert.equal(describeCall({ function: { name: 'board', arguments: 'not json' } }), 'board raw="not json"');
 });
+
+test('spendOf measures a live run\'s time now, not as of its last task; describeSpend names only the capped dimensions', async () => {
+  const { spendOf, describeSpend } = await import('../team-record.js');
+  const run = { status: 'running', startedAt: 1000, budget: { tokens: 40000, ms: 900000 }, usage: null };
+  const s = spendOf(run, { now: 131000 });
+  assert.equal(s.spent.ms, 130000, 'live elapsed with no run.usage yet');
+  assert.equal(s.spent.tokens, 0);
+  assert.equal(describeSpend(s), '0 / 40,000 tokens · 2m10s / 15m00s');
+  const done = { status: 'completed', startedAt: 1000, usage: { cap: { tokens: 40000, calls: 20, usd: 2 }, spent: { tokens: 1240, calls: 3, usd: 0.1234, ms: 5000 } } };
+  const d = spendOf(done, { now: 999999 });
+  assert.equal(d.spent.ms, 5000, 'a finished run keeps its recorded time');
+  assert.equal(d.pct, 3);
+  assert.equal(describeSpend(d), '1,240 / 40,000 tokens · 3 / 20 calls · $0.12 / $2.00');
+  assert.equal(spendOf({ status: 'running' }), null);
+});
