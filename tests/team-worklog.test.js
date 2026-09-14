@@ -119,3 +119,16 @@ test('runState reads the record against the clock: a live record with no events 
   assert.ok(got[0].similarity >= 0.8);
   assert.deepEqual(priorWorkFor(runs, { team: '', request: 'Research ORCL stock: recent news', now: 6000 }).map((x) => x.id), ['r3', 'r1']);
 });
+
+test('every work-log entry has a stable id — the step\'s index, the call\'s id, the post\'s id — so a board keeps the row a person opened while the log grows', async () => {
+  const { workLogFor } = await import('../team-worklog.js');
+  const run = { startedAt: 1, tasks: [{ id: 'a', role: 'r', status: 'running', attempts: [{ model: 'm', at: 1 }], transcript: [{ role: 'user', content: 'p', at: 2 }, { role: 'assistant', tool_calls: [{ id: 'c1', function: { name: 'find', arguments: '{}' } }], at: 3 }], text: 'typing…' }], lastEventAt: 8, threads: { threads: [{ id: 'th', kind: 'task', taskId: 'a' }], posts: [{ id: 'p1', threadId: 'th', text: 'hi', at: 7 }] } };
+  const before = workLogFor(run, 'a').map((e) => e.id);
+  assert.deepEqual(before, ['attempt:1', 'step:0', 'call:c1', 'post:p1', 'live']);
+  // A step lands: earlier ids do not move.
+  run.tasks[0].transcript.push({ role: 'tool', tool_call_id: 'c1', content: 'x', at: 4 });
+  run.lastEventAt = 9;
+  const after = workLogFor(run, 'a').map((e) => e.id);
+  assert.deepEqual(after, ['attempt:1', 'step:0', 'call:c1', 'step:2', 'post:p1', 'live']);
+  assert.ok(new Set(after).size === after.length, 'ids are unique');
+});
