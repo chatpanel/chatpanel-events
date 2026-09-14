@@ -41,6 +41,42 @@ test('threads, posts, replies and decisions fold from events into the same state
   assert.equal(b.all()[0].confidence, 0.7);
 });
 
+test('a thread a person removes is gone from the fold with its posts, a member\'s later post in it lands nowhere, and a waiting ask cannot be removed', () => {
+  const events = [];
+  let t = 0;
+  const b = createBoard({ now: () => (t += 1), newId: (p) => `${p}${t}`, onEvent: (type, ev) => events.push({ type, ...ev }) });
+  const th = b.openThread({ taskId: 't1', kind: 'task', title: 'Find facts' });
+  const keep = b.openThread({ kind: 'discussion', title: 'keep me' });
+  b.post({ threadId: th.id, by: 'researcher', kind: 'finding', text: 'Rooms $260', finding: { kind: 'claim' } });
+  b.post({ threadId: keep.id, by: 'budget', kind: 'note', text: 'still here' });
+  const { thread: ask } = b.ask({ taskId: 't1', by: 'researcher', text: 'Which week?' });
+  assert.equal(b.removeThread(ask.id), null, 'a waiting ask stays: answer it or stop the run');
+  assert.equal(b.removeThread('nope'), null);
+  const gone = b.removeThread(th.id, { by: 'person' });
+  assert.equal(gone.id, th.id);
+  assert.equal(b.thread(th.id), undefined);
+  assert.equal(b.threadForTask('t1'), undefined);
+  assert.equal(b.posts(th.id).length, 0);
+  assert.equal(b.all().length, 0, 'its findings are gone too');
+  assert.throws(() => b.post({ threadId: th.id, by: 'researcher', kind: 'note', text: 'late' }), /no thread/);
+  const folded = events.reduce((st, ev) => foldBoard(st, ev), emptyBoardState());
+  // (`ask()` stamps `waitingOn` after its event, so the whole states differ there — compare what the removal touches.)
+  assert.deepEqual({ ...folded, threads: folded.threads.map((x) => x.id) }, { ...b.state(), threads: b.state().threads.map((x) => x.id) }, 'the fold reproduces the live board, removal included');
+  assert.deepEqual(folded.threads.map((x) => x.id).sort(), [keep.id, ask.id].sort());
+  assert.equal(folded.posts.length, 2);
+  assert.deepEqual(folded.removed, [th.id]);
+  // A post the running client's runner still makes in the removed thread (it did not see the removal) is dropped by the fold.
+  const late = foldBoard(folded, { type: 'board.post', at: 99, post: { id: 'late1', threadId: th.id, by: 'researcher', kind: 'note', text: 'late', at: 99 } });
+  assert.equal(late.posts.length, 2);
+  assert.equal(late.posts.some((x) => x.id === 'late1'), false);
+  // The removal is on the trail, and a removed ask leaves the waiting lane.
+  assert.match(teamLine({ type: 'board.thread-removed', by: 'person', threadId: th.id }).text, /removed a thread/);
+  // A board seeded from that state (a resume) keeps refusing the thread's id.
+  const resumed = createBoard({ state: late });
+  assert.equal(resumed.thread(th.id), undefined);
+  assert.deepEqual(resumed.state().removed, [th.id]);
+});
+
 test('what a member reads is threaded: a reply under its post, a person\'s word marked settled, rejected posts gone', () => {
   const b = createBoard({ now: () => 1, newId: (p) => `${p}${Math.random().toString(36).slice(2, 6)}` });
   const th = b.openThread({ taskId: 't1', kind: 'task', title: 'Find facts' });
