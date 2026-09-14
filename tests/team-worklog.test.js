@@ -132,3 +132,23 @@ test('every work-log entry has a stable id — the step\'s index, the call\'s id
   assert.deepEqual(after, ['attempt:1', 'step:0', 'call:c1', 'step:2', 'post:p1', 'live']);
   assert.ok(new Set(after).size === after.length, 'ids are unique');
 });
+
+test('an attempt is named by its label when the id is a generated one — the log reads as models, not ids', () => {
+  const run = runFromEvents('run_2', [
+    ev('run.started', T0, { team: 'T', request: 'q', roles: ['r'] }),
+    ev('plan.ready', T0 + 1, { by: 'fixed', tasks: [{ id: 't', role: 'r', title: 'r' }] }),
+    ev('task.started', T0 + 2, { taskId: 't' }),
+    // The runner says the label with the model; an older run said only the id.
+    ev('task.model', T0 + 3, { taskId: 't', model: 'mqk41ucyhmz1au', label: 'openrouter/free', attempt: 1 }),
+    ev('task.routed', T0 + 3, { taskId: 't', attempt: 1, engine: { kind: 'model', id: 'mqk41ucyhmz1au', model: 'openrouter/free' } }),
+    ev('task.model', T0 + 20, { taskId: 't', model: 'mqqzh4970js34c', attempt: 2 }),
+    ev('task.routed', T0 + 20, { taskId: 't', attempt: 2, engine: { kind: 'harness', id: 'codex', model: 'gpt-5-codex' } }),
+    ev('task.model', T0 + 30, { taskId: 't', model: 'bare-id', attempt: 3 }),
+    ev('task.failed', T0 + 50, { taskId: 't', status: 'error', error: 'no model left', ms: 48 }),
+  ]);
+  const log = workLogFor(run, 't');
+  const attempts = log.filter((e) => e.kind === 'attempt');
+  assert.deepEqual(attempts.map((a) => a.model), ['openrouter/free', 'gpt-5-codex', 'bare-id']);
+  assert.equal(attempts[0].modelId, 'mqk41ucyhmz1au', 'the id is still on the row');
+  assert.match(log.at(-1).text, /failed after 3 models \(openrouter\/free → gpt-5-codex → bare-id\)/);
+});
