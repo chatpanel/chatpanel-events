@@ -152,15 +152,61 @@ test('a run plans, fans out in waves with barriers, reads the board, merges thro
   // The run's events, with the board's own (a thread per task, a post per finding, the
   // thread resolved with its task, the proposal thread at the end) filtered out here and
   // asserted on their own below.
-  assert.deepEqual(events.map((e) => e[0]).filter((x) => !x.startsWith('board.') && x !== 'task.model' && x !== 'task.routed' && x !== 'run.usage' && x !== 'task.step' && x !== 'task.scored'), ['run.started', 'plan.ready', 'task.started', 'task.finding', 'task.finding', 'task.done', 'run.merging', 'task.started', 'task.done', 'run.done']);
+  assert.deepEqual(events.map((e) => e[0]).filter((x) => !x.startsWith('board.') && x !== 'task.model' && x !== 'task.routed' && x !== 'run.usage' && x !== 'task.step' && x !== 'task.scored'), ['run.started', 'plan.ready', 'task.started', 'task.finding', 'task.finding', 'task.done', 'run.merging', 'task.added', 'task.started', 'task.done', 'run.done']);
   assert.deepEqual(events.filter((e) => e[0] === 'task.model').map((e) => [e[1].taskId, e[1].model]), [['t_researcher', 'mid'], ['merge', 'big']], 'the ledger is told who does what');
   assert.equal(events.filter((e) => e[0] === 'run.usage').length, 2, 'spend after every task and after the merge');
   const boardEvents = events.map((e) => e[0]).filter((x) => x.startsWith('board.'));
-  assert.deepEqual(boardEvents, ['board.thread', 'board.post', 'board.post', 'board.thread-status', 'board.thread', 'board.post']);
-  assert.equal(res.threads.threads.length, 2, 'one task thread and the proposal');
+  assert.deepEqual(boardEvents, ['board.thread', 'board.post', 'board.post', 'board.thread-status', 'board.thread', 'board.thread-status', 'board.thread', 'board.post']);
+  assert.equal(res.threads.threads.length, 3, 'a task thread each for the researcher and the merge, and the proposal');
   assert.equal(res.threads.threads.at(-1).kind, 'proposal');
   assert.equal(res.threads.posts.at(-1).status, 'proposed', 'the draft awaits a decision');
   assert.equal(events.at(-1)[1].status, 'completed');
+  // THE MERGE IS A TASK: on the plan, with a row, a thread held by the judge, a transcript
+  // the work log draws, and a scorecard fact with real size — not a bare call the record
+  // dropped. Its answer is the proposal and not a finding of its own.
+  const merge = res.tasks.find((x) => x.id === 'merge');
+  assert.ok(merge, 'the merge has a row');
+  assert.equal(merge.role, 'writer');
+  assert.equal(merge.status, 'ok');
+  assert.ok(merge.transcript.length >= 2, 'its transcript is on the record');
+  assert.deepEqual(res.plan.tasks.find((x) => x.id === 'merge')?.dependsOn, ['t_researcher']);
+  const mergeThread = res.threads.threads.find((x) => x.taskId === 'merge');
+  assert.equal(mergeThread?.holder, 'writer');
+  assert.equal(mergeThread?.status, 'resolved');
+  assert.equal(res.board.filter((x) => x.taskId === 'merge').length, 0, 'the answer is not posted as a finding');
+  const scored = events.filter((e) => e[0] === 'task.scored').map((e) => e[1]);
+  assert.deepEqual(scored.map((x) => [x.taskId, x.roleKind]), [['t_researcher', 'ic'], ['merge', 'orchestrator']]);
+  assert.ok(scored[1].size.ms > 0 && scored[1].size.steps >= 2, 'the judge is scored on what it did');
+  assert.equal(res.proposal.taskId, 'merge');
+  // …and the RECORD (what both clients and the gateway draw) has the same row, folded.
+  const { runFromEvents } = await import('../team-record.js');
+  const rec = runFromEvents('run_1', events.map(([type, p]) => ({ type, at: p.at, payload: p })));
+  const row = rec.tasks.find((x) => x.id === 'merge');
+  assert.equal(row?.status, 'ok');
+  assert.equal(row?.kind, 'merge');
+  assert.equal(row?.role, 'writer');
+  assert.ok(row.transcript?.length >= 2, 'the merge\'s steps folded onto its row');
+  const { workLogFor } = await import('../team-worklog.js');
+  assert.ok(workLogFor(rec, 'merge').some((e) => e.kind === 'end' && e.status === 'ok'), 'the work log draws the merge');
+});
+
+test('a record from a build whose merge was a bare call still shows it: task.started names a task the plan never had', async () => {
+  const { runFromEvents } = await import('../team-record.js');
+  const rec = runFromEvents('run_old', [
+    { type: 'run.started', at: 1, payload: { team: 'research', roles: ['researcher', 'writer'] } },
+    { type: 'plan.ready', at: 2, payload: { by: 'fixed', tasks: [{ id: 't_researcher', role: 'researcher', title: 'researcher', dependsOn: [] }] } },
+    { type: 'task.started', at: 3, payload: { taskId: 't_researcher', role: 'researcher' } },
+    { type: 'task.done', at: 4, payload: { taskId: 't_researcher', status: 'ok' } },
+    { type: 'run.merging', at: 5, payload: { policy: 'judge' } },
+    { type: 'task.started', at: 6, payload: { taskId: 'merge', role: 'writer', title: 'merge (writer)' } },
+    { type: 'task.model', at: 7, payload: { taskId: 'merge', model: 'big', attempt: 1 } },
+    { type: 'task.done', at: 8, payload: { taskId: 'merge', status: 'ok' } },
+  ]);
+  const row = rec.tasks.find((x) => x.id === 'merge');
+  assert.equal(row?.status, 'ok');
+  assert.equal(row?.role, 'writer');
+  assert.equal(row?.kind, 'merge');
+  assert.equal(row?.model, 'big');
 });
 
 test('independent tasks overlap; a dependent one waits; stop fans out; over budget stops with what it has', async () => {

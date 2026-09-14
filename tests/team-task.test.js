@@ -152,3 +152,33 @@ test('the record grows as the attempt goes: a host that reports each step puts t
   assert.equal(steps.length, 3, 'the task, the call and its result were each recorded when they happened');
   assert.equal(res.tasks[0].transcript.length, 3, 'nothing is recorded twice');
 });
+
+test('a run that died DURING THE MERGE resumes the merge from its transcript — the researcher is carried, the judge is not started over', async () => {
+  const { runFromEvents, checkpointFrom } = await import('../team-record.js');
+  const judged = normalizeTeam({ name: 'r', merge: 'judge', judge: 'w', roles: [{ id: 'a', prompt: 'Research.', grants: ['web'] }, { id: 'w', prompt: 'Write.', prefer: 'strong', grants: ['none'] }], budget: { tokens: 100000 } });
+  const events = [];
+  const ac = new AbortController();
+  const calls = [];
+  const callModel = async ({ taskId, messages }) => {
+    calls.push({ taskId, n: messages.length });
+    if (taskId === 'a' || taskId === 't_a') return { ok: true, text: '{"findings":[{"kind":"claim","text":"X is 1","refs":["n:1"]}]}' };
+    // The merge: half-way through its answer the process dies.
+    ac.abort();
+    return { ok: true, aborted: true, text: '', transcript: [...messages, { role: 'assistant', content: 'Final answer so far: X' }] };
+  };
+  const first = await runTeam({ team: judged, request: 'what is X?', callModel, appoint: (r) => ({ model: r.prefer === 'strong' ? 'big' : 'mid', mode: 'model' }), signal: ac.signal, emit: (type, ev) => events.push({ type, ...ev }) });
+  assert.equal(first.status, 'stopped');
+  assert.equal(first.tasks.find((x) => x.id === 'merge')?.status, 'stopped');
+  // From the record, as a client would.
+  const run = runFromEvents('r', events.map((e, seq) => ({ seq, type: e.type, at: e.at, payload: e })));
+  assert.equal(run.tasks.find((x) => x.id === 'merge')?.kind, 'merge');
+  assert.ok(run.plan.tasks.some((x) => x.id === 'merge' && x.kind === 'merge'), 'the merge is on the plan the checkpoint carries');
+  const cp = checkpointFrom(run);
+  const second = await resumeTeam({ checkpoint: cp, team: judged, request: 'what is X?', appoint: () => ({ model: 'big', mode: 'model' }), callModel: async ({ taskId, messages }) => { calls.push({ taskId, n: messages.length, resumed: true }); return { ok: true, text: 'Final: X is 1.' }; } });
+  assert.equal(second.status, 'completed');
+  assert.deepEqual(calls.filter((c) => c.resumed).map((c) => c.taskId), ['merge'], 'only the merge ran again; the researcher was carried');
+  assert.equal(calls.at(-1).n, 3, 'the merge continued its transcript (prompt, the half answer, the resume note)');
+  assert.match(second.proposal.text, /Final: X is 1/);
+  assert.equal(second.proposal.by, 'w');
+  assert.equal(second.threads.threads.filter((t) => t.taskId === 'merge').length, 1, 'one merge thread, not one per attempt');
+});
