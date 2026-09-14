@@ -88,3 +88,34 @@ test('spendOf measures a live run\'s time now, not as of its last task; describe
   assert.equal(describeSpend(d), '1,240 / 40,000 tokens · 3 / 20 calls · $0.12 / $2.00');
   assert.equal(spendOf({ status: 'running' }), null);
 });
+
+test('runState reads the record against the clock: a live record with no events for minutes is stalled, and the clock stops where its writer stopped', async () => {
+  const { runState, spendOf, describeSpend, priorWorkFor } = await import('../team-record.js');
+  const live = { status: 'running', startedAt: 1000, lastEventAt: 31000, budget: { ms: 300000, tokens: 1000 } };
+  assert.equal(runState(live, { now: 40000 }).key, 'running');
+  assert.match(runState(live, { now: 40000 }).detail, /last event 9 s ago/);
+  const st = runState(live, { now: 20 * 60000 });
+  assert.equal(st.key, 'stalled');
+  assert.equal(st.tone, 'err');
+  assert.match(st.detail, /no events for 19 min/);
+  assert.equal(spendOf(live, { now: 20 * 60000 }).spent.ms, 30000, 'the clock stopped at the last event');
+  assert.equal(spendOf(live, { now: 40000 }).spent.ms, 39000, 'a running one counts to now');
+  assert.equal(runState({ ...live, stale: true }, { now: 40000 }).key, 'stalled', 'the store\'s own stale mark counts too');
+  assert.equal(runState({ status: 'waiting' }).key, 'waiting');
+  assert.equal(runState({ status: 'partial' }).label, 'done with failures');
+  const over = spendOf({ status: 'completed', startedAt: 1, usage: { cap: { ms: 300000, tokens: 1000 }, spent: { ms: 400000, tokens: 10 } } });
+  assert.deepEqual(over.over, ['ms']);
+  assert.match(describeSpend(over), /6m40s \/ 5m00s \(over\)/);
+  // Prior work: the same team, a request that says the same thing, findings on the record, not live.
+  const runs = [
+    { id: 'r1', team: 'research', status: 'completed', request: 'Research ORCL stock: recent news, earnings, analyst sentiment', findings: 37, createdAt: 1000 },
+    { id: 'r2', team: 'research', status: 'running', request: 'Research ORCL stock: recent news, earnings, analyst sentiment', findings: 5, createdAt: 2000 },
+    { id: 'r3', team: 'review', status: 'completed', request: 'Research ORCL stock: recent news', findings: 4, createdAt: 3000 },
+    { id: 'r4', team: 'research', status: 'failed', request: 'Plan a trip to Lisbon', findings: 2, createdAt: 4000 },
+    { id: 'r5', team: 'research', status: 'completed', request: 'research orcl stock recent news earnings and analyst sentiment', findings: 0, createdAt: 5000 },
+  ];
+  const got = priorWorkFor(runs, { team: 'research', request: 'Research ORCL stock — recent news, earnings, analyst sentiment', excludeId: 'r6', now: 6000 });
+  assert.deepEqual(got.map((x) => x.id), ['r1'], 'not the live one, not another team, not another question, not one with nothing');
+  assert.ok(got[0].similarity >= 0.8);
+  assert.deepEqual(priorWorkFor(runs, { team: '', request: 'Research ORCL stock: recent news', now: 6000 }).map((x) => x.id), ['r3', 'r1']);
+});

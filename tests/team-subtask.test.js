@@ -349,3 +349,23 @@ test('recruitForRun: the host\'s job board in one call — the pick becomes a re
   assert.equal(made.agentId, none.proposal.id);
   assert.ok(made.role.model, 'the new agent (engine auto) got a target');
 });
+
+test('prior work is on the board before anyone starts: a thread per earlier run, its findings as posts every member reads', async () => {
+  const solo = normalizeTeam({ name: 'solo', roles: [{ id: 'r', prompt: 'Research.', grants: ['none'] }], merge: 'first', budget: { tokens: 100000 } });
+  const events = [];
+  const seen = [];
+  const res = await runTeam({
+    team: solo, request: 'ORCL news', appoint: () => ({ model: 'm' }), emit: (type, p) => events.push([type, p]),
+    prior: [{ runId: 'run_old', at: 1000, request: 'ORCL news last month', findings: [{ kind: 'claim', text: 'ORCL beat on cloud revenue', refs: ['https://x.example'], role: 'researcher' }, { kind: 'claim', text: 'rejected one', status: 'rejected' }] }],
+    callModel: async (req) => { seen.push(req.prompt); return { ok: true, text: 'fresh answer', usage: { total_tokens: 10 } }; },
+    now: () => 61000 * 5,
+  });
+  assert.equal(res.status, 'completed');
+  assert.match(seen[0], /## discussion: Prior work — run run_old \(5 min ago\)/);
+  assert.match(seen[0], /ORCL beat on cloud revenue \(refs: https:\/\/x.example, run:run_old\)/);
+  assert.doesNotMatch(seen[0], /rejected one/, 'a finding a person struck is not carried');
+  const pr = events.find((e) => e[0] === 'run.prior')[1];
+  assert.equal(pr.from, 'run_old');
+  assert.equal(pr.findings, 1);
+  assert.equal(res.board.filter((f) => f.prior).length, 1, 'carried findings are marked prior on the board');
+});
