@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/events",
-  "version": "0.88.0",
+  "version": "0.89.0",
   "description": "The canonical ChatPanel event-log and capability contracts \u2014 typed durable facts, clock-free deterministic linearization, schema upcasting, and the invariants the replay harness asserts. Pure, dependency-free ESM shared by the ChatPanel extension, gateway and bridge.",
   "type": "module",
   "main": "index.js",
@@ -66,6 +66,7 @@
     "./reach.js": "./reach.js",
     "./recipe-tool.js": "./recipe-tool.js",
     "./recipe.js": "./recipe.js",
+    "./recruit.js": "./recruit.js",
     "./record-list.js": "./record-list.js",
     "./redaction-tokens.js": "./redaction-tokens.js",
     "./ref.js": "./ref.js",
@@ -196,6 +197,7 @@
     "reach.js",
     "recipe-tool.js",
     "recipe.js",
+    "recruit.js",
     "record-list.js",
     "redaction-tokens.js",
     "ref.js",
