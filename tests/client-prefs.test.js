@@ -10,7 +10,7 @@ const settings = {
   recipes: [],
   ui: {
     theme: 'dark', webSearch: { enabled: true, engines: [{ id: 'startpage', enabled: true }] },
-    mcpToolsMode: 'auto', maxToolsPerTurn: 24, historyTools: true,
+    mcpToolsMode: 'auto', maxToolsPerTurn: 24, maxToolRoundsPerTurn: 40, historyTools: true,
     voice: { engine: 'pocket' }, meetingWindowMin: 45, alertSound: false, skillDirs: ['~/skills'],
   },
 };
@@ -18,7 +18,7 @@ const settings = {
 test('sections are cut out of the settings tree, and the secrets that must not travel are not among them', () => {
   const s = pickSections(settings);
   assert.deepEqual(s.mcpServers, settings.mcpServers);
-  assert.deepEqual(s.tools, { mcpToolsMode: 'auto', maxToolsPerTurn: 24, historyTools: true });
+  assert.deepEqual(s.tools, { mcpToolsMode: 'auto', maxToolsPerTurn: 24, maxToolRoundsPerTurn: 40, historyTools: true }, 'the turn-loop cap travels with the tools section, so the desktop runs the same cap');
   assert.deepEqual(s.meetings, { meetingWindowMin: 45, alertSound: false });
   assert.deepEqual(s.skillDirs, ['~/skills']);
   assert.equal(s.endpoints, undefined);
