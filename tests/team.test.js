@@ -320,6 +320,14 @@ test('a role whose model is unavailable is re-appointed to the next on the roste
   assert.equal(isModelUnavailable('Codex exited 1: failed'), true, 'a relayed agent that exited is a model that did not answer');
   assert.equal(isModelUnavailable('the model returned no answer'), true);
   assert.equal(isModelUnavailable("couldn't reach the gateway on http://127.0.0.1:4320 — fetch failed"), true);
+  const { teamToolTimeoutMs, teamToolSpec } = await import('../team-tool.js');
+  assert.equal(teamToolTimeoutMs([{ budget: { ms: 300_000 } }, { budget: { tokens: 1 } }]), 360_000, 'the longest budget plus a minute for the merge');
+  assert.equal(teamToolTimeoutMs([]), 660_000, 'no time budget: ten minutes plus one');
+  assert.equal(teamToolTimeoutMs([{ budget: { ms: 10_000 } }]), 120_000, 'never under two minutes');
+  assert.equal(teamToolSpec([{ name: 'r', roles: [], budget: { ms: 300_000 } }]).timeoutMs, 360_000);
+  assert.equal(isModelUnavailable('network error'), true, 'a browser reports a dead local server as a plain network error — the next model might answer');
+  assert.equal(isModelUnavailable('TypeError: Failed to fetch'), true);
+  assert.equal(isModelUnavailable('request to http://127.0.0.1:11434 failed, reason: ECONNRESET'), true);
   assert.equal(isModelUnavailable('context length exceeded'), false);
   assert.equal(isModelUnavailable('over budget'), false);
   assert.equal(isModelUnavailable('I cannot help with that'), false);
