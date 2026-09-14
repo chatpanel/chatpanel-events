@@ -83,3 +83,14 @@ test('a route with reasons is a line; a route without is the lane\'s; commits ar
   assert.deepEqual(lanes.tasks.t.engine, { kind: 'harness', id: 'claude' });
   assert.deepEqual(lanes.tasks.t.scm, { branch: 'cp/p/j', commits: 1, head: 'b2' });
 });
+
+test('a project\'s events read on the same strip as a run\'s', () => {
+  assert.equal(teamLine({ type: 'project.thinking', what: 'project_jobs', model: 'big' }).text, 'executive is planning the jobs (big)');
+  assert.equal(teamLine({ type: 'job.posted', job: { id: 'facts', title: 'Gather the numbers', needs: { skills: ['finance'] } } }).text, 'job posted: Gather the numbers (finance)');
+  assert.equal(teamLine({ type: 'job.updated', job: { id: 'facts', status: 'recruited', recruited: { agentId: 'researcher' } } }).text, 'job facts recruited → researcher');
+  assert.equal(teamLine({ type: 'job.updated', job: { id: 'facts', status: 'in-progress' } }), null, 'a status the person does not need is not a line');
+  assert.deepEqual(teamLine({ type: 'job.updated', job: { id: 'memo', status: 'failed', result: { text: 'nobody took it' } } }), { type: 'error', text: 'job memo failed — nobody took it' });
+  assert.equal(teamLine({ type: 'project.decision', by: 'executive', kind: 'review', text: 'done-when holds\nmore' }).text, 'executive · review: done-when holds');
+  assert.equal(teamLine({ type: 'project.decision', kind: 'answer', text: 'x' }), null);
+  assert.equal(teamLine({ type: 'project.status', status: 'done', by: 'person' }).text, 'project done (person)');
+});

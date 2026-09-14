@@ -108,9 +108,9 @@ test('the work grants: shell, fs:write and the scm ladder; a chat role may not h
   assert.equal(grantAllows(['shell'], 'page'), false);
 });
 
-test('the standing org: seven starter agents the four engineering starter teams stand on', () => {
+test('the standing org: the executive and the seven starter agents the four engineering starter teams stand on', () => {
   const agents = starterAgents();
-  assert.deepEqual(agents.map((a) => a.id), ['architect', 'implementer', 'reviewer', 'tester', 'librarian', 'scribe', 'release']);
+  assert.deepEqual(agents.map((a) => a.id), ['executive', 'architect', 'implementer', 'reviewer', 'tester', 'librarian', 'scribe', 'release']);
   for (const a of agents) assert.equal(validateAgent(a).ok, true, a.id);
   assert.equal(scmAllows(agents.find((a) => a.id === 'implementer').grants, 'merge'), false, 'no Implementer merges');
   assert.equal(agents.find((a) => a.id === 'reviewer').grants.includes('fs:write'), false, 'the Reviewer is read-only');

@@ -445,3 +445,22 @@ test('an empty answer is a failed task, a failed run is reported once, and a sec
   assert.equal(runs, 1, 'a rephrased request in the same turn does not run the team again');
   assert.match(other.error, /already ran in this turn/);
 });
+
+test('the team tool: a goal goes to the executive through {"action":"project"}, once per turn, refused where the host has no loop', async () => {
+  const { teamToolProvider } = await import('../team-tool.js');
+  const calls = [];
+  const p = teamToolProvider({ teams: [], runProject: async (args) => { calls.push(args); return { projectId: 'p1', status: 'done', rounds: 1, jobs: [{ id: 'j1', status: 'done' }], runs: [{ runId: 'run_1' }], report: 'Hold.', spend: { tokens: 10 } }; } });
+  assert.match(p.specs[0].description, /"action":"project"/);
+  assert.match(p.system, /goes to the executive/);
+  const r = JSON.parse(await p.execute('team', { action: 'project', goal: 'Hold or sell ORCL', title: 'ORCL', doneWhen: 'a call with the numbers' }));
+  assert.equal(r.status, 'done');
+  assert.equal(r.report, 'Hold.');
+  assert.match(r.hint, /Done-when holds/);
+  assert.deepEqual(calls.map((c) => [c.goal, c.doneWhen]), [['Hold or sell ORCL', 'a call with the numbers']]);
+  const again = JSON.parse(await p.execute('team', { action: 'project', goal: 'the same, rephrased' }));
+  assert.match(again.error, /already ran in this turn/);
+  assert.equal(calls.length, 1, 'not started again');
+  const none = teamToolProvider({ teams: [] });
+  assert.match(JSON.parse(await none.execute('team', { action: 'project', goal: 'g' })).error, /cannot run a project/);
+  assert.match(JSON.parse(await p.execute('team', { action: 'project' })).error, /needs a goal/);
+});
