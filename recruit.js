@@ -94,15 +94,20 @@ export function engineRow(candidate, { card = null, minCalls = DEFAULT_MIN_CALLS
   const capabilities = [...new Set(lower(c.capabilities))].filter((x) => !withdrawn.has(x));
   if (withdrawn.size && lower(c.capabilities).some((x) => withdrawn.has(x))) observed.push('capabilities');
   const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  const reach = REACH_RANK[c.reach] != null ? c.reach : 'any';
+  // A model on this machine costs nothing per token — the router's own rule (`costOf`), kept
+  // here for a host that has no guess to offer; an unknown cost anywhere else stays unknown
+  // and orders as the dearest, so "we did not price it" never reads as "free".
+  const costPer1k = override.costPer1k ?? num(c.costPer1k) ?? (reach === 'device' && engine.kind === 'model' ? 0 : null);
   return {
     key,
     engine,
     label: clip(c.label || c.name || engineName(engine), 120),
-    reach: REACH_RANK[c.reach] != null ? c.reach : 'any',
+    reach,
     capabilities,
     quality: override.quality ?? num(c.quality),
     latencyMs: override.latencyMs ?? num(c.latencyMs),
-    costPer1k: override.costPer1k ?? num(c.costPer1k),
+    costPer1k,
     costPerTask: num(card?.cost?.perTask),
     availability: num(card?.availability?.rate),
     available: override.available ?? (c.available !== false && c.usable !== false),
@@ -390,7 +395,7 @@ export function carveBudget(job, record = null) {
  * the why — or back to `open`, with the proposal as a decision a person reads.
  */
 export function recruitEvents(job, apps, decision, { by = 'evaluator', at = Date.now(), record = null } = {}) {
-  const events = [{ type: 'job.updated', at, job: { id: job.id, status: 'evaluating', applications: apps }, by }];
+  const events = [{ type: 'job.updated', at, job: { id: job.id, status: 'evaluating', applications: (apps || []).map(({ covers: _c, ...a }) => a) }, by }];
   if (decision?.kind === 'recruit') {
     const budget = carveBudget(job, record);
     events.push({ type: 'job.updated', at, job: { id: job.id, status: 'recruited', recruited: { agentId: decision.agentId, engine: decision.engine, ...(budget ? { budget } : {}), by: decision.by || by, at, why: clip(decision.why, 600) } }, by });
