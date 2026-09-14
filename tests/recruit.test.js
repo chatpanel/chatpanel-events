@@ -64,7 +64,7 @@ test('routeFor: policy orders what clears, requirements eliminate, the agent\'s 
   assert.equal(routeFor(pool[0], job, { rows, reach: 'device' }).key, 'model:qwen3-8b');
   // A code job needs a harness, whatever the policy prefers.
   const code = routeFor(pool[0], codeJob, { rows });
-  assert.equal(code.key, 'harness:claude'); assert.match(code.reasons.join(' '), /needs a harness/);
+  assert.equal(code.key, 'harness:claude'); assert.match(code.reasons.join(' '), /needs an agent tool/);
   // The agent's own record on an engine breaks a tie between equals.
   const twins = engineRows([{ id: 'a', model: 'a', reach: 'any', capabilities: ['tools'], quality: 0.6, latencyMs: 700, costPer1k: 0.001 }, { id: 'b', model: 'b', reach: 'any', capabilities: ['tools'], quality: 0.6, latencyMs: 700, costPer1k: 0.001 }]);
   const summary = { byEngine: [{ key: 'model:b', rating: { avg: 0.9, count: 3 } }] };

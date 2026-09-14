@@ -102,9 +102,9 @@ export function groupModels(models, { selectedId = '' } = {}) {
   if (agents.length) {
     sections.push({
       key: 'agents',
-      // Naming phase 1 (naming-revamp.md): the CLI coding agents are HARNESSES — a runtime one
+      // Naming (naming-revamp.md): the CLI coding agents are AGENT TOOLS — a runtime one
       // of the user's own agents can be given as its engine. The key and kind are code.
-      label: 'Harnesses',
+      label: 'Agent Tools',
       kind: 'agent',
       items: agents.slice().sort(availableFirst).map(decorate),
     });
