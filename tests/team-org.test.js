@@ -2,9 +2,9 @@
 // is a state; a team has a shape; an agent has one colour everywhere.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { promoteRoles, starterTeam, missingStarters, teamHealth, teamShape, describeTeamShape, whereItWorks, rosterRows, agentKind, agentHue, agentColor, agentInitials, roleCardId, cardNumbers, upsertAgents, soloTeam, teamsWithSolos } from '../team-org.js';
+import { promoteRoles, starterTeam, missingStarters, teamHealth, teamShape, describeTeamShape, whereItWorks, rosterRows, agentKind, agentHue, agentColor, agentInitials, roleCardId, cardNumbers, upsertAgents, soloTeam, teamsWithSolos, builtinOrg, grantChoices, grantsFromChoices, skillChoices } from '../team-org.js';
 import { starterTeams, normalizeTeam } from '../team.js';
-import { starterAgents, resolveTeam } from '../agent.js';
+import { starterAgents, resolveTeam, assistantAgent } from '../agent.js';
 import { emptyProjectRecord, foldProject } from '../project.js';
 
 const research = () => starterTeams().find((t) => t.name === 'research');
@@ -171,12 +171,52 @@ test('an agent is invokable on its own: a one-role team named after it, under a 
   assert.match(t.description, /^Just Reviewer — /);
   const resolved = resolveTeam(t, pool);
   assert.match(resolved.roles[0].prompt, /Reviewer/);
-  assert.equal(soloTeam({ id: 'assistant' }), null, 'the Assistant is the chat itself');
+  assert.equal(soloTeam(assistantAgent()).roles[0].agent, 'assistant', 'the Assistant runs on its own too — the chat\'s model, scored');
   assert.equal(soloTeam({ id: 'x', enabled: false }), null);
   // The runnable list: saved teams first, then a solo per card whose id no team claims.
   const all = teamsWithSolos([{ name: 'reviewer', roles: [{ id: 'a', agent: 'reviewer' }], budget: { ms: 1 } }, { name: 'research', roles: [{ id: 'r', prompt: 'p', grants: ['none'] }], budget: { ms: 1 } }], pool);
   assert.equal(all[0].name, 'reviewer'); assert.equal(all[0].origin, undefined, 'the saved team wins the name');
   assert.ok(all.some((t) => t.name === 'architect' && t.origin?.agent === 'architect'));
   assert.equal(all.filter((t) => t.name === 'reviewer').length, 1);
-  assert.equal(teamsWithSolos([], [{ id: 'notes-only', name: 'N', prompt: 'p', appliesTo: ['notes'] }]).length, 0, 'an agent that does not apply to jobs has no command');
+  assert.ok(!teamsWithSolos([], [{ id: 'notes-only', name: 'N', prompt: 'p', appliesTo: ['notes'] }]).some((t) => t.name === 'notes-only'), 'an agent that does not apply to jobs has no command');
+});
+
+test('the built-in org ships with the product: every starter team and agent is present, runnable, and derived — never stored', () => {
+  const org = builtinOrg([], []);
+  assert.deepEqual(org.teams.map((t) => t.name), ['research', 'review', 'feature', 'fix', 'docs', 'release']);
+  assert.ok(org.teams.every((t) => t.builtin === true));
+  assert.ok(org.teams.every((t) => t.roles.every((r) => r.agent)), 'every built-in role is a card');
+  const ids = org.pool.map((a) => a.id);
+  for (const id of ['research-researcher', 'research-writer', 'review-editor', 'review-checker', 'executive', 'architect', 'implementer', 'reviewer', 'tester', 'librarian', 'scribe', 'release']) assert.ok(ids.includes(id), id);
+  assert.ok(org.pool.every((a) => a.builtin === true));
+  for (const t of org.teams) assert.equal(teamHealth(t, org.pool).ready, true, `${t.name} runs as shipped`);
+  assert.deepEqual(rosterRows(org.pool, { teams: org.teams }).counts.missing, 0, 'no holes out of the box');
+  assert.equal(rosterRows(org.pool, { teams: org.teams }).counts.builtin, org.pool.length);
+  // A saved record replaces the built-in: an edit, or a switch-off.
+  const mine = { ...org.teams[0], description: 'my research', builtin: undefined };
+  const off = { ...org.pool.find((a) => a.id === 'tester'), enabled: false, builtin: undefined };
+  const org2 = builtinOrg([mine], [off]);
+  assert.equal(org2.teams.find((t) => t.name === 'research').description, 'my research');
+  assert.equal(org2.teams.find((t) => t.name === 'research').builtin, undefined, 'the saved copy is the person\'s');
+  assert.equal(org2.pool.find((a) => a.id === 'tester').enabled, false);
+  assert.equal(org2.pool.filter((a) => a.id === 'tester').length, 1);
+  assert.equal(teamHealth(org2.teams.find((t) => t.name === 'feature'), org2.pool).reason, 'tester is off');
+  // And the chat can run all of it, agents included, with nothing saved.
+  const names = teamsWithSolos([], []).map((t) => t.name);
+  for (const n of ['research', 'feature', 'reviewer', 'research-researcher', 'assistant']) assert.ok(names.includes(n), n);
+});
+
+test('grants and skills are choices from what exists, never a free field of ids', () => {
+  const g = grantChoices({ servers: [{ id: 'jira', name: 'Jira' }] });
+  assert.deepEqual(g.map((x) => x.id), ['reach', 'servers', 'work']);
+  assert.deepEqual(g[0].items.map((x) => x.id), ['data', 'web', 'history', 'mcp']);
+  assert.deepEqual(g[1].items, [{ id: 'mcp:jira', label: 'Jira', hint: 'this server only' }]);
+  assert.ok(g[0].items.every((x) => x.label && x.label !== x.id), 'every grant has a name a person recognizes');
+  assert.equal(grantChoices().length, 2, 'no servers, no server group');
+  assert.deepEqual(grantsFromChoices([]), ['none']);
+  assert.deepEqual(grantsFromChoices(['web', 'mcp:jira', 'bogus', 'page']), ['web', 'mcp:jira']);
+  assert.deepEqual(grantsFromChoices(['mcp', 'mcp:jira', 'data']), ['mcp', 'data'], 'every server swallows the one');
+  const sk = skillChoices([{ command: 'summarize', name: 'Summarize', description: 'x' }, { command: 'off', enabled: false }, { command: 'graphify' }], { current: ['graphify', 'gone'] });
+  assert.deepEqual(sk.map((x) => [x.id, x.missing || false]), [['summarize', false], ['graphify', false], ['gone', true]]);
+  assert.equal(sk[0].label, 'Summarize (/summarize)');
 });
