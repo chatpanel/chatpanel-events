@@ -2,7 +2,7 @@
 // is a state; a team has a shape; an agent has one colour everywhere.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { promoteRoles, starterTeam, missingStarters, teamHealth, teamShape, describeTeamShape, whereItWorks, rosterRows, agentKind, agentHue, agentColor, agentInitials, roleCardId, cardNumbers, upsertAgents } from '../team-org.js';
+import { promoteRoles, starterTeam, missingStarters, teamHealth, teamShape, describeTeamShape, whereItWorks, rosterRows, agentKind, agentHue, agentColor, agentInitials, roleCardId, cardNumbers, upsertAgents, soloTeam, teamsWithSolos } from '../team-org.js';
 import { starterTeams, normalizeTeam } from '../team.js';
 import { starterAgents, resolveTeam } from '../agent.js';
 import { emptyProjectRecord, foldProject } from '../project.js';
@@ -159,4 +159,24 @@ test('upsert keeps the pool\'s order, replaces by id, appends the rest', () => {
   const pool = [{ id: 'a', v: 1 }, { id: 'b', v: 1 }];
   assert.deepEqual(upsertAgents(pool, [{ id: 'b', v: 2 }, { id: 'c', v: 1 }]), [{ id: 'a', v: 1 }, { id: 'b', v: 2 }, { id: 'c', v: 1 }]);
   assert.deepEqual(upsertAgents(undefined, []), []);
+});
+
+test('an agent is invokable on its own: a one-role team named after it, under a budget, never stored', () => {
+  const pool = starterAgents();
+  const t = soloTeam(pool.find((a) => a.id === 'reviewer'));
+  assert.equal(t.name, 'reviewer');
+  assert.deepEqual(t.roles.map((r) => [r.id, r.agent]), [['reviewer', 'reviewer']]);
+  assert.equal(t.merge, 'first'); assert.equal(t.budget.ms, 300000);
+  assert.deepEqual(t.origin, { agent: 'reviewer' });
+  assert.match(t.description, /^Just Reviewer — /);
+  const resolved = resolveTeam(t, pool);
+  assert.match(resolved.roles[0].prompt, /Reviewer/);
+  assert.equal(soloTeam({ id: 'assistant' }), null, 'the Assistant is the chat itself');
+  assert.equal(soloTeam({ id: 'x', enabled: false }), null);
+  // The runnable list: saved teams first, then a solo per card whose id no team claims.
+  const all = teamsWithSolos([{ name: 'reviewer', roles: [{ id: 'a', agent: 'reviewer' }], budget: { ms: 1 } }, { name: 'research', roles: [{ id: 'r', prompt: 'p', grants: ['none'] }], budget: { ms: 1 } }], pool);
+  assert.equal(all[0].name, 'reviewer'); assert.equal(all[0].origin, undefined, 'the saved team wins the name');
+  assert.ok(all.some((t) => t.name === 'architect' && t.origin?.agent === 'architect'));
+  assert.equal(all.filter((t) => t.name === 'reviewer').length, 1);
+  assert.equal(teamsWithSolos([], [{ id: 'notes-only', name: 'N', prompt: 'p', appliesTo: ['notes'] }]).length, 0, 'an agent that does not apply to jobs has no command');
 });
